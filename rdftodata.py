@@ -28,7 +28,61 @@ class PublicationsDataset:
         self.edges_destinations = edges_destinations # list, dest node for i-th edge
         self.edges_relations = edges_relations # list, relation type for i-th edge
         self.edges_norms = edges_norms # list, norm value for i-th edge
-    
+        
+        # used only for link-prediction
+        self.train_triples = list()
+        self.valid_triples = list()
+        self.test_triples = list()
+
+    def initTrainValidTestTriples(self, train_perc: float=0.7, valid_perc: float=0.15, test_perc: float=0.15):
+        '''
+        Splits the triples dataset into train, test and validation sets. The split
+        is based on the relation, taking the given percentage for each relation type.
+        '''
+        assert valid_perc + test_perc + train_perc == 1
+
+        logging.debug("Splitting triples in Train, Test and Validation sets...")
+
+        triples = list(zip(self.edges_sources, self.edges_relations, self.edges_destinations))
+
+        # divide triples by relations
+        dict_rel_triples = {rel_index: list() for rel_index in range(self.num_relations)}
+        for triple in triples:
+            dict_rel_triples.get(triple[1]).append(triple)
+
+        # for each relation (also inverse ones), excluded the self relation, split triples in training/valid/test sets.
+        for rel in range(1, self.num_relations):
+            rel_triples = dict_rel_triples.get(rel) # all triples for this relation
+            num_triples = len(rel_triples)
+
+            num_train = int(num_triples * train_perc)
+            self.train_triples.extend(rel_triples[:num_train])
+
+            num_valid = int(num_triples * valid_perc)
+            self.valid_triples.extend(rel_triples[num_train:(num_train+num_valid)])
+
+            self.test_triples.extend(rel_triples[num_train+num_valid:])
+
+        # add relations between nodes and themselves for train, test, validation data,
+        # the self relations are added to all sets (if they'll be merged later, duplicates will arise!)
+        num_self_rel = 0
+        for triples_subset in (self.train_triples, self.valid_triples, self.test_triples):
+            nodes = set((triple[0] for triple in triples_subset))
+            nodes = nodes|set((triple[2] for triple in triples_subset)) #union
+            for node in nodes:
+                triples_subset.append((node, 0, node)) # append to train, test or valid
+                num_self_rel = num_self_rel + 1 
+        
+        assert len(triples) == (len(self.train_triples) \
+                + len(self.valid_triples) \
+                + len(self.test_triples) \
+                - num_self_rel + self.num_nodes ), "Wrong number of Train, Valid, Test triples" # all the self relations added
+
+        logging.debug("...finished:")
+        logging.debug(" - Number of training triples: {}".format(len(self.train_triples)))
+        logging.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
+        logging.debug(" - Number of test triples: {}".format(len(self.test_triples)))
+
 
 def readFileInGraph(filepath: str = "../../data/serialized.xml"):
     '''
@@ -93,7 +147,6 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
     labels = list()
     for index, (node,label) in enumerate(sorted(labels_dict.items())):
         labels.append(label)   
-        #print("node_index=", node, " node_label=", label, file=open("log_node_label.txt", "a"))
 
 
     relations_dict = {relation: index+1 for (index, relation) in enumerate(relations_set)} #+1 because of self relation that has 0 as index
@@ -135,12 +188,20 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
     return PublicationsDataset(num_nodes, num_relations, num_labels, labels, edges_sources, edges_destinations, edges_relations, edges_norms)
 
 
-def rdfToData(filepath: str = "serialized.xml") -> PublicationsDataset:
+def rdfToData(filepath: str = "serialized.xml", job: str = "classification") -> PublicationsDataset:
     '''
     return a data tuple that contains all the required data sctructures
     to build an RGCN-based model
     '''
-    return buildDataFromGraph(readFileInGraph(filepath))
+    if job == "classification":
+        return buildDataFromGraph(readFileInGraph(filepath))
+    elif job == "link-prediction":
+        data = buildDataFromGraph(readFileInGraph(filepath))
+        data.initTrainValidTestTriples();
+        return data
+    else:
+        logging.error("use as job \"classification\" or \"link-prediction\"")
+        exit(0)
 
 
 def main(argv):
@@ -168,6 +229,8 @@ def main(argv):
 
     # extract data needed for RGCN from rdflib's graph
     data = buildDataFromGraph(g)
+    data.initTrainValidTestTriples()
+
     return 0
 
 
@@ -176,4 +239,3 @@ def main(argv):
 #----------#
 if __name__ == "__main__":
     main(sys.argv)
-
