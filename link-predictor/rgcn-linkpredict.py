@@ -63,6 +63,11 @@ class LinkPredict(nn.Module):
     '''
     def __init__(self, in_dim, h_dim, num_rels, num_bases=-1,
                  num_hidden_layers=1, dropout=0, use_cuda=False, reg_param=0):
+        '''
+        Called with this parameters:
+                in_dim=num_nodes, h_dim=args.n_hidden, num_rels=num_rels, num_bases=args.n_bases,
+                num_hidden_layers=args.n_layers, dropout=args.dropout, use_cuda=use_cuda, reg_param=args.regularization
+        '''
         super(LinkPredict, self).__init__()
 
         # build the entity encoder (with out_dim=h_dim)
@@ -148,16 +153,22 @@ def main(args):
         data = rdftodata.rdfToData(job="link-prediction")
     
     num_nodes = data.num_nodes
-    train_data = np.array(data.train_triples)
-    valid_data = data.valid_triples
-    test_data = data.test_triples
+    train_data = data.train_triples # triples used for training
+    valid_data = data.valid_triples # triples used for validation
+    test_data = data.test_triples # triples used for test
     num_rels = data.num_relations
 
-    # set CUDA if required and available
+    # Convert T,V,T data to correct type
+    train_data = np.array(data.train_triples)
+    valid_data = torch.as_tensor(valid_data, dtype=torch.float64) #as_tensor doesn't crate a copy
+    test_data = torch.as_tensor(test_data, dtype=torch.float64)
+
+    # set CUDA if requested and available
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
     if use_cuda:
         torch.cuda.set_device(args.gpu)
         logging.debug("CUDA activated for GPU {}".format(args.gpu))
+    else: logging.debug("CUDA not available.")
 
     # create model
     model = LinkPredict(num_nodes,
@@ -168,10 +179,6 @@ def main(args):
                         dropout=args.dropout,
                         use_cuda=use_cuda,
                         reg_param=args.regularization)
-
-    # validation and testing triplets
-    valid_data = torch.LongTensor(valid_data)
-    test_data = torch.LongTensor(test_data)
 
     # debug prints
     print("\n------------------------\n")
