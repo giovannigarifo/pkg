@@ -123,21 +123,17 @@ class LinkPredict(nn.Module):
 
         The model (the parameters w_relation) will be adjusted to **score** a negative 
         sample near 0 and a positive sample near 1.
-        '''
-        print("\n------------------------\n")
-        
+        '''        
         embedding = self.forward(g) # calc embedding from RGCN encoder
-        print("\nembedding: embedding.shape=", embedding.shape, " embedding.type=", type(embedding),embedding, "\n")
+        print("- embedding: embedding.shape=", embedding.shape, " embedding.type=", type(embedding))
 
-        score = self.calc_score(embedding, triplets)
-        print("\nscore: score.shape=", score.shape, " score.type=", type(score),score, "\n")
+        score = self.calc_score(embedding, triplets) # DistMult
+        print("- score: score.shape=", score.shape, " score.type=", type(score))
 
-        print("\nlabels: labels.shape=", labels.shape, " labels.type=", type(labels), labels, "\n")
+        print("- labels: labels.shape=", labels.shape, " labels.type=", type(labels))
         predict_loss = F.binary_cross_entropy_with_logits(score, labels)
         reg_loss = self.regularization_loss(embedding)
         
-        print("\n------------------------\n")
-
         return predict_loss + self.reg_param * reg_loss # regularization to avoid overfitting
 
 
@@ -160,8 +156,8 @@ def main(args):
 
     # Convert T,V,T data to correct type
     train_data = np.array(data.train_triples)
-    valid_data = torch.as_tensor(valid_data, dtype=torch.float64) #as_tensor doesn't crate a copy
-    test_data = torch.as_tensor(test_data, dtype=torch.float64)
+    valid_data = torch.as_tensor(valid_data, dtype=torch.long) #as_tensor doesn't crate a copy
+    test_data = torch.as_tensor(test_data, dtype=torch.long)
 
     # set CUDA if requested and available
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
@@ -181,21 +177,14 @@ def main(args):
                         reg_param=args.regularization)
 
     # debug prints
-    print("\n------------------------\n")
+    print("\n----------------------------------------")
     print("- Input data before creating DGL graph -\n")
-    print("num_nodes: ", num_nodes, "\n")
-    print("num_rels: ", num_rels, "\n")
-
-    print("\ntrain_data: shape=", train_data.shape, "type=", type(train_data), "\n")
-    print(train_data)
-
-    print("\nvalid_data: shape=", valid_data.shape, "type=", type(valid_data), "\n")
-    print(valid_data)
-
-    print("\ntest_data: shape=", test_data.shape, "type=", type(test_data), "\n")
-    print(test_data)
-
-    print("\n------------------------\n")
+    print("num_nodes: ", num_nodes)
+    print("num_rels: ", num_rels)
+    print("train_data: shape=", train_data.shape, "type=", type(train_data))
+    print("valid_data: shape=", valid_data.shape, "type=", type(valid_data))
+    print("test_data: shape=", test_data.shape, "type=", type(test_data))
+    print("----------------------------------------\n")
 
     # build test (full) graph: used for validation.
     # 
@@ -219,17 +208,14 @@ def main(args):
     # at this point the DGL graph contains all nodes, all edges, and all edges have the associated relation type
 
     # debug prints
-    print("\n------------------------\n")
+    print("\n---------------------")
     print("- DGL graph created -\n")
-    
     print("test_graph: number_of_nodes=",test_graph.number_of_nodes(), \
-          "number_of_edges=", test_graph.number_of_edges(), "\n")    
-    
-    print("test_node_id: shape=", test_node_id.shape," type=", type(test_node_id), test_node_id, "\n")
-    print("test_rel: shape=", test_rel.shape," type=", type(test_rel), test_rel, "\n")
-    print("test_norm: shape=", test_norm.shape," type=", type(test_norm), test_norm, "\n")
-    
-    print("\n------------------------\n")
+          "number_of_edges=", test_graph.number_of_edges())    
+    print("test_node_id: shape=", test_node_id.shape," type=", type(test_node_id))
+    print("test_rel: shape=", test_rel.shape," type=", type(test_rel))
+    print("test_norm: shape=", test_norm.shape," type=", type(test_norm))
+    print("---------------------\n")
 
     # set cuda
     if use_cuda:
@@ -245,32 +231,40 @@ def main(args):
     forward_time = []
     backward_time = []
 
-    # training loop
-    print("start training...")
+    print("*************************")
+    print("Starting training loop...")
+    print("*************************\n\n")
 
     epoch = 0
     best_mrr = 0
+
     while True:
         model.train() # set training mode explicitly
         epoch += 1
+        
+        print("-----------")
+        print("Epoch #{n}".format(n=epoch))
+        print("-----------")
+
+        # ----------------------------------
+        # 1) Prepare sampled training graph
+        # ----------------------------------
 
         # perform edge neighborhood sampling to generate training graph and data.
-        # Also add negative samples to be used to
-        g, node_id, edge_type, node_norm, data, labels = \
-            utils.generate_sampled_graph_and_labels(
+        # Also add negative samples.
+        #`data` will contain the triplets (both positive and negatives), and `labels`
+        # will contain the corresponding labels (1 for positive samples, 0 for negative samples)
+        sampled_graph, node_id, edge_type, node_norm, data, labels = utils\
+            .generate_sampled_graph_and_labels(
                 train_data, args.graph_batch_size, args.graph_split_size,
                 num_rels, adj_list, degrees, args.negative_sample)
-        print("Done edge sampling")
-
-        # Now `data` contains the triplets (both positive and negatives), and labels
-        # contains the corresponding labels (1 for positive samples, 0 for negative samples)
         
-        # set node/edge feature
+        # to tensors
         node_id = torch.from_numpy(node_id).view(-1, 1) 
         edge_type = torch.from_numpy(edge_type)
         node_norm = torch.from_numpy(node_norm).view(-1, 1)
         data, labels = torch.from_numpy(data), torch.from_numpy(labels) 
-        deg = g.in_degrees(range(g.number_of_nodes())).float().view(-1, 1)
+        deg = sampled_graph.in_degrees(range(sampled_graph.number_of_nodes())).float().view(-1, 1)
         
         if use_cuda: # set cuda tensors if available
             node_id, deg = node_id.cuda(), deg.cuda()
@@ -278,37 +272,42 @@ def main(args):
             data, labels = data.cuda(), labels.cuda()
         
         # set norm for each node and set relation type for each edge of the training graph
-        g.ndata.update({'id': node_id, 'norm': node_norm})
-        g.edata['type'] = edge_type
+        sampled_graph.ndata.update({'id': node_id, 'norm': node_norm})
+        sampled_graph.edata['type'] = edge_type
 
-        # The training graph is ready
-
-        # train the model and get loss
+        # ----------------------------------
+        # 2) train the model and get loss
+        # ----------------------------------
+        print("/#/ Perform forward propagation...")
         t0 = time.time()
-        loss = model.get_loss(g, data, labels) # actually calls model.forward()
+        loss = model.get_loss(sampled_graph, data, labels) # actually calls model.forward()
         t1 = time.time()
+        print("...done\n")
+
+        print("/#/ Perform backward propagation...")
         loss.backward() # calc the gradients
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm) # clip gradients
         optimizer.step() # update weights
         t2 = time.time()
+        print("...done\n")
 
         forward_time.append(t1 - t0)
         backward_time.append(t2 - t1)
-        print("Epoch {:04d} | Loss {:.4f} | Best MRR {:.4f} | Forward {:.4f}s | Backward {:.4f}s".
+        print("- Stats: Epoch {:04d} | Loss {:.4f} | Best MRR {:.4f} | Forward {:.4f}s | Backward {:.4f}s \n".
               format(epoch, loss.item(), best_mrr, forward_time[-1], backward_time[-1]))
 
-        optimizer.zero_grad() # zeroes the gradients for next iteration
+        optimizer.zero_grad() # zeroes the gradients for next training iteration
 
         # validation: evaluate over the test graph
         if epoch % args.evaluate_every == 0:
+
+            print("/#/ Perform evaluation...".format(e=epoch))  
             
             if use_cuda:
                 model.cpu() # perform validation on CPU because full graph is too large
 
             model.eval() # set evaluation mode explicitly
-            print("\n------------------------\n")
-            print("- Start evaluation of current model -\n")
-            
+        
             mrr = utils.evaluate(test_graph, 
                                 model, 
                                 valid_data, 
@@ -359,8 +358,8 @@ if __name__ == '__main__':
     parser.add_argument("--eval-batch-size", type=int, default=500, help="batch size when evaluating")
     parser.add_argument("--regularization", type=float, default=0.01, help="regularization weight")
     parser.add_argument("--grad-norm", type=float, default=1.0, help="norm to clip gradient to")
-    parser.add_argument("--graph-batch-size", type=int, default=30000, help="number of edges to sample in each iteration")
-    parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of edges used as positive sample")
+    parser.add_argument("--graph-batch-size", type=int, default=30000, help="number of edges to sample in each training epoch")
+    parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of sampled edges (see graph-batch-size) used as positive sample")
     parser.add_argument("--negative-sample", type=int, default=10, help="number of negative samples per positive sample")
     parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
 

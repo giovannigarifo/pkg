@@ -75,20 +75,21 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
                                       num_rels, adj_list, degrees,
                                       negative_rate):
     """
-    Get training graph and signals
-    First perform edge neighborhood sampling on graph, then perform negative
-    sampling to generate negative samples
+    First perform edge neighborhood sampling to obtain a training graph
+    composed by a number of "sample_size" edges, then perform negative sampling to 
+    generate negative samples.
 
     Parameters:
 
-        triplets: ndarray of training data, shape= (272115, 3)
-        sample_size: args.batch_size
+        triplets: ndarray, train_data is passed as argument
+        sample_size: args.graph_batch_size
         split_size: args.graph_split_size,
         negative_rate: args.negative_sample, number of negative samples for each positive one
     """
+    print("Sampling train graph for this epoch...")
+
     # perform edge neighbor sampling
-    edges = sample_edge_neighborhood(adj_list, degrees, len(triplets),
-                                     sample_size)
+    edges = sample_edge_neighborhood(adj_list, degrees, len(triplets), sample_size)
 
     # relabel nodes to have consecutive node ids
     edges = triplets[edges]
@@ -102,7 +103,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
                                         negative_rate)
 
     # further split graph, only half of the edges will be used as graph
-    # structure, while the rest half is used as unseen positive samples
+    # structure, while the rest half are used as unseen positive samples
     split_size = int(sample_size * split_size)
     graph_split_ids = np.random.choice(np.arange(sample_size),
                                        size=split_size, replace=False)
@@ -110,11 +111,10 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
     dst = dst[graph_split_ids]
     rel = rel[graph_split_ids]
 
-    # build DGL graph
-    print("# sampled nodes: {}".format(len(uniq_v)))
-    print("# sampled edges: {}".format(len(src) * 2))
+    # build the sampled train graph
     g, rel, norm = build_graph_from_triplets(len(uniq_v), num_rels,
                                              (src, rel, dst))
+    print("Train graph sampled.\n")
     return g, uniq_v, rel, norm, samples, labels
 
 def comp_deg_norm(g):
@@ -142,12 +142,12 @@ def build_graph_from_triplets(num_nodes, num_rels, triplets):
     g.add_edges(src, dst)
 
     norm = comp_deg_norm(g)
-    print("# nodes: {}, # edges: {}".format(num_nodes, len(src)))
+    print("...DGL Graph built from triples. number of nodes: {}, number of edges: {}".format(num_nodes, len(src)))
     return g, rel, norm
 
 def build_test_graph(num_nodes, num_rels, edges):
     src, rel, dst = edges.transpose()
-    print("Test graph:")
+    print("Building test graph...")
     return build_graph_from_triplets(num_nodes, num_rels, (src, rel, dst))
 
 def negative_sampling(pos_samples, num_entity, negative_rate):
@@ -193,38 +193,17 @@ def sort_and_rank(score, target):
     # from the highest score to the lowest 
     _, indices = torch.sort(score, dim=1, descending=True) # indices.shape = batchsize x numNodes
     
-    print("indices: ")
-    print(indices)
-    print(indices.shape)
-    
-    print("target: ")
-    print(target)
-    print(target.shape)
-    
     # target is transformed to a column vector, and each value is compared to the values in the columns of indices
     # there is only one "1" for each row in cmp_res, this is used to extract where is positioned the target value
     # so to calculate the rank for the correct triplet (a,r,target)
     cmp_res = indices == target.view(-1, 1)
 
-    print("cmp_res: ")
-    print(cmp_res)
-    print(cmp_res.shape)
-    # np.savetxt("cmp_res.txt", cmp_res.numpy().astype(int), fmt="%s", delimiter=",")
-
     # get the index of the correct triplet (a,r,target) from cmp_res, **the index is the rank**, that goes from 0 to num_nodes, hopefully 
     # the rank for the validation triplet should be lowest possible, ideally 1, this would mean that the valid triplet got the highest score
     indices = torch.nonzero(cmp_res)
-    
-    print("indices: ")
-    print(indices)
-    print(indices.shape)
 
     # just got the ranks, first column is added by torch.nonzero() and is useless
     ranks = indices[:, 1].view(-1)
-    
-    print("ranks: ")
-    print(indices)
-    print(indices.shape)
 
     return ranks
 
@@ -259,7 +238,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, batch_size=100):
         batch_end = min(num_entity, (idx + 1) * batch_size)
 
         # get indexes of subject nodes for the validation triples of this batch
-        batch_a = a[batch_start: batch_end] 
+        batch_a = a[batch_start: batch_end]
 
         # get indexes of the relations for the validation triples of this batch
         batch_r = r[batch_start: batch_end] 
@@ -332,14 +311,14 @@ def evaluate(test_graph,
 
         # get the embeddings and the w_relation parameters (without grad update)
         # for the model under evaluation
-        embedding, w = model.evaluate(test_graph) # embedding.shape=[14541, 500], w.shape=[237, 500]
+        embedding, w = model.evaluate(test_graph)
         
-        # get s,r,o from validation data (17535 unseen triples for validation)
+        # get s,r,o from validation data
         s = test_triplets[:, 0]
         r = test_triplets[:, 1]
         o = test_triplets[:, 2]
 
-        print("s,r,o shapes: ", s.shape, r.shape, o.shape)
+        print("- s,r,o shapes: ", s.shape, r.shape, o.shape)
 
         # get ranks for the inverse of the validation triplet (o,r,s)
         ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, eval_bz)
@@ -355,11 +334,11 @@ def evaluate(test_graph,
 
         # MRR definition: The mean of all reciprocal ranks for the true candidates over the test set (1/rank)
         mrr = torch.mean(1.0 / ranks.float()) 
-        print("MRR (raw): {:.6f}".format(mrr.item()))
+        print("- MRR (raw): {:.6f}".format(mrr.item()))
 
         for hit in hits:
             avg_count = torch.mean((ranks <= hit).float())
-            print("Hits (raw) @ {}: {:.6f}".format(hit, avg_count.item()))
+            print("- Hits (raw) @ {}: {:.6f}".format(hit, avg_count.item()))
     
     return mrr.item()
 
