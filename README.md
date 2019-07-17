@@ -13,14 +13,14 @@ The main difference with respect to classical GCNs that operates on graphs is th
 
 ## Link prediction
 
-To run `link-predict.py` on 16GB of system memory with training and evaluation done on CPU:
+To run `link-predict.py` on 16GB of system memory with training and evaluation done on CPU with 8 threads available:
 
 ```
-python3 rgcn-linkpredict.py --eval-batch-size="200" --rdf-dataset-path="../data/serialized.xml" 
+python3 rgcn-linkpredict.py --num-threads=7 --eval-batch-size="40" --rdf-dataset-path="../data/anni2013-2017_with_img.xml" 
 ```
 
-on 32GB of system memory and GPU with 8GB of video memory, with training on GPU and evaluation on CPU:
+on 32GB of system memory and GPU with 8GB of video memory, with training on GPU and evaluation on CPU with 8 threads available:
 
 ```
-python3 rgcn-linkpredict.py --gpu=0 --eval-batch-size=400 --graph-batch-size=20000 --rdf-dataset-path="../data/serialized.xml" 
+python3 rgcn-linkpredict.py --gpu=0 --num-threads=7 --eval-batch-size="80" --graph-batch-size=20000 --rdf-dataset-path="../data/anni2013-2017_with_img.xml"
 ```

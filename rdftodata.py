@@ -190,7 +190,7 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
     edges_sources = [edge[0] for edge in edge_list]
     edges_destinations = [edge[1] for edge in edge_list]
     edges_relations = [edge[2] for edge in edge_list]
-    edges_norms = [1 for edge in edge_list] 
+    edges_norms = [1 for edge in edge_list] # TODO
 
     logging.debug("\n...finished, some stats:")
     logging.debug(" - Number of nodes: %d" % num_nodes)
