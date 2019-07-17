@@ -166,6 +166,10 @@ def main(args):
         logging.debug("CUDA activated for GPU {}".format(args.gpu))
     else: logging.debug("CUDA not available.")
 
+    # set CPU threads to be used
+    torch.set_num_threads(args.num_threads)
+    logging.debug("CPU threads that will be used: {t}".format(t=torch.get_num_threads()))
+
     # create model
     model = LinkPredict(num_nodes,
                         args.n_hidden,
@@ -327,11 +331,13 @@ def main(args):
                 model.cuda() # activate again GPU
 
 
-    print("training done")
+    print("**************")
+    print("Training done!")
+    print("**************\n")
     print("Mean forward time: {:4f}s".format(np.mean(forward_time)))
-    print("Mean Backward time: {:4f}s".format(np.mean(backward_time)))
+    print("Mean Backward time: {:4f}s\n".format(np.mean(backward_time)))
 
-    print("\nstart testing:")
+    print("/#/ Perform testing of the best model found...")
     # use best model checkpoint
     checkpoint = torch.load(model_state_file)
     if use_cuda:
@@ -348,6 +354,7 @@ if __name__ == '__main__':
     
     parser.add_argument("--rdf-dataset-path", type=str, help="path to RDF dataset to use")
     parser.add_argument("--gpu", type=int, default=-1, help="gpu")
+    parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
 
     parser.add_argument("--dropout", type=float, default=0.2, help="dropout probability")
     parser.add_argument("--n-hidden", type=int, default=500, help="number of hidden units")
