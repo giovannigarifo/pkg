@@ -319,7 +319,7 @@ def evaluate(test_graph,
         o = test_triplets[:, 2]
 
         print("- s,r,o shapes: ", s.shape, r.shape, o.shape)
-        print("Computing ranks...)
+        print("Computing ranks...")
 
         # get ranks for the inverse of the validation triplet (o,r,s)
         ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, eval_bz)
