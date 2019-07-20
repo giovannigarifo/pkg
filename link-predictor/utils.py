@@ -232,7 +232,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, batch_size=100):
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
         
-        print("batch {} / {}".format(idx, n_batch))
+        #print("batch {} / {}".format(idx, n_batch))
         
         batch_start = idx * batch_size
         batch_end = min(num_entity, (idx + 1) * batch_size)
@@ -319,12 +319,15 @@ def evaluate(test_graph,
         o = test_triplets[:, 2]
 
         print("- s,r,o shapes: ", s.shape, r.shape, o.shape)
+        print("Computing ranks...)
 
         # get ranks for the inverse of the validation triplet (o,r,s)
         ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, eval_bz)
-        
+        print("...half way...")
+
         # get rank for the validation triplets (s,r,o)
         ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, eval_bz)
+        print("...done.")
 
         ranks = torch.cat([ranks_s, ranks_o])
         ranks += 1 # change to 1-indexed, because the highest rank is 0
@@ -339,6 +342,8 @@ def evaluate(test_graph,
         for hit in hits:
             avg_count = torch.mean((ranks <= hit).float())
             print("- Hits (raw) @ {}: {:.6f}".format(hit, avg_count.item()))
-    
+
+        print("\n")
+
     return mrr.item()
 
