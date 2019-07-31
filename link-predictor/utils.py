@@ -17,9 +17,13 @@ import dgl
 
 def get_adj_and_degrees(num_nodes, triplets):
     """ 
-    Get adjacency list and degrees of the graph
+    Get adjacency list of the graph and degrees of nodes.
+
+    For each node, the adjacency list saves [triplet_number, neighbour_node_id]
     """
-    adj_list = [[] for _ in range(num_nodes)]
+    adj_list = [[] for _ in range(num_nodes)] # list of lists, number of lists = num_nodes
+    
+    # "i" is the triplet_number, used during edge neighbourhood sampling to retireve the selected triplet
     for i,triplet in enumerate(triplets):
         adj_list[triplet[0]].append([i, triplet[2]])
         adj_list[triplet[2]].append([i, triplet[0]])
@@ -31,6 +35,12 @@ def get_adj_and_degrees(num_nodes, triplets):
 def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
     """ 
     Edge neighborhood sampling to reduce training graph size
+    
+    Parameters
+        adj_list: list of lists, indexed by node id, it allow to retrieve all the nodes connected (in/out) to each node
+        degrees: numpy array, indexed by node id, contains the number of nodes connected to each node
+        n_triplets: number of tripltes in the training graph
+        sample_size: args.graph_batch_size
     """
 
     edges = np.zeros((sample_size), dtype=np.int32)
@@ -56,7 +66,6 @@ def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
         chosen_edge = np.random.choice(np.arange(chosen_adj_list.shape[0]))
         chosen_edge = chosen_adj_list[chosen_edge]
         edge_number = chosen_edge[0]
-
         while picked[edge_number]:
             chosen_edge = np.random.choice(np.arange(chosen_adj_list.shape[0]))
             chosen_edge = chosen_adj_list[chosen_edge]
@@ -70,6 +79,7 @@ def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
         seen[other_vertex] = True
 
     return edges
+
 
 def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
                                       num_rels, adj_list, degrees,
@@ -87,7 +97,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
         negative_rate: args.negative_sample, number of negative samples for each positive one
     """
     print("Sampling train graph for this epoch...")
-
+    
     # perform edge neighbor sampling
     edges = sample_edge_neighborhood(adj_list, degrees, len(triplets), sample_size)
 
