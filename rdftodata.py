@@ -202,8 +202,6 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     edges_relations = [edge[2] for edge in edge_list]
     edges_norms = [1 for edge in edge_list] # TODO
 
-    print(edge_list)
-
     logging.debug("\n...finished, some stats:")
     logging.debug(" - Number of nodes: %d" % num_nodes)
     logging.debug(" - Number of relations: %d" % num_relations)
