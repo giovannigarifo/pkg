@@ -312,7 +312,8 @@ def main(args):
 
             model.eval() # set evaluation mode explicitly
         
-            mrr = utils.evaluate(test_graph, 
+            mrr = utils.evaluate(epoch,
+                                test_graph, 
                                 model, 
                                 valid_data, 
                                 num_nodes,

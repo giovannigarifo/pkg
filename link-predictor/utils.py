@@ -218,14 +218,14 @@ def sort_and_rank(score, target):
     return ranks
 
 
-def perturb_and_get_rank(embedding, w, a, r, b, num_entity, batch_size=100):
+def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, batch_size=100):
     """ 
     num_entity := num_nodes (total)
 
     It's called by evaluate:
 
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, eval_bz)
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, eval_bz)
+        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz)
+        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz)
 
 
     Calculate the rank of each validation triplet (a,r,b).
@@ -238,6 +238,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, batch_size=100):
     """
     n_batch = (num_entity + batch_size - 1) // batch_size
     ranks = []
+    score_list = []
     
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
@@ -284,15 +285,20 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, batch_size=100):
         # get the embeddings of the objects of the validation triples for this batch
         target = b[batch_start: batch_end] 
 
+        # export scores for this batch
+        score_list.extend(export_triples_score(batch_a, batch_r, target, embedding, w, score))
+
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         ranks.append(sort_and_rank(score, target))
-    
+
+    print_scores_as_json(score_list, perturb_str, epoch) # export all scores
     return torch.cat(ranks)
 
 
 # TODO (lingfan): implement filtered metrics
 # return MRR (raw), and Hits @ (1, 3, 10)
-def evaluate(test_graph, 
+def evaluate(epoch,
+            test_graph, 
             model, 
             test_triplets, 
             num_entity, 
@@ -332,11 +338,11 @@ def evaluate(test_graph,
         print("Computing ranks...")
 
         # get ranks for the inverse of the validation triplet (o,r,s)
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, eval_bz)
+        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz)
         print("...half way...")
 
         # get rank for the validation triplets (s,r,o)
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, eval_bz)
+        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz)
         print("...done.")
 
         ranks = torch.cat([ranks_s, ranks_o])
@@ -357,3 +363,61 @@ def evaluate(test_graph,
 
     return mrr.item()
 
+
+
+def print_scores_as_json(score_list, perturb_str, epoch):
+    dir_path = "./output/epoch_" + str(epoch) + "/"
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    with open(dir_path + perturb_str + "_" + "_score.json", "w") as f:
+        json.dump(score_list, f, ensure_ascii=False, indent=4)
+
+
+def create_list_from_batch(batch, embedding):
+    """ 
+    Create list of dictionaries including the id of the node (or the relation)
+    and its embedding value
+    """
+    batch_list = []
+    for index, value in enumerate(batch.tolist()):
+        new_dict = {"id": value, "emb": embedding[batch][index, :].tolist()}
+        batch_list.append(new_dict)
+    return batch_list
+
+
+def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
+    """ 
+    Export score associated to each triple included in the validation dataset.
+    This function is called for each evaluation batch.
+    Exported scores could be useful for a deep analysis of the evaluation
+    results and are necessary for the refinement process of the SEMI tool.
+
+    Arguments:
+        s -- tensor batch of subject ids
+        r -- tensor batch of relation ids
+        o -- tensor batch of object ids
+        emb_nodes -- tensor with embeddings of all nodes
+        emb_rels -- tensor embeddings of all relations
+        score -- tensor of scores associated to eache triple, size(batch, num_of_nodes)
+    Returns:
+        score_list -- list of dictionaries including triple ids and the associated score
+    """
+    batch_s_list = create_list_from_batch(s, emb_nodes)
+    batch_r_list = create_list_from_batch(r, emb_rels)
+    batch_o_list = create_list_from_batch(o, emb_nodes)
+
+    # Prepare a list of dicts containing the triples and its scores
+    score_list = []
+    for row_index, row in enumerate(score):
+        for col_index, col in enumerate(row):
+            s_id = str(batch_s_list[row_index]["id"])
+            r_id = str(batch_r_list[row_index]["id"])
+            o_id = str(batch_o_list[row_index]["id"])
+            # score tensor includes also perturbed triples, for such reason
+            # I need to get data from the correct column
+            if str(col_index) == str(o_id):
+                score_value = col
+                score_dict = {"s": s_id, "r": r_id,
+                              "o": o_id, "score": score_value.item()}
+                score_list.append(score_dict)
+    return score_list
