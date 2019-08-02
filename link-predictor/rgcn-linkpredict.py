@@ -144,7 +144,7 @@ def main(args):
 
     # load data required for the prediction task
     if(args.rdf_dataset_path):
-        data = rdftodata.rdfToData(args.rdf_dataset_path, "link-prediction")
+        data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction")
     else: 
         data = rdftodata.rdfToData(job="link-prediction")
     
@@ -288,7 +288,7 @@ def main(args):
         t1 = time.time()
         print("...done\n")
 
-        print("/#/ Perform backward propagation...")
+        print("/#/ Perform backpropagation...")
         loss.backward() # calc the gradients
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm) # clip gradients
         optimizer.step() # update weights
@@ -346,7 +346,7 @@ def main(args):
     model.eval()
     model.load_state_dict(checkpoint['state_dict'])
     print("Using best epoch: {}".format(checkpoint['epoch']))
-    utils.evaluate(test_graph, model, test_data, num_nodes, hits=[1, 3, 10],
+    utils.evaluate(epoch, test_graph, model, test_data, num_nodes, hits=[1, 3, 10],
                    eval_bz=args.eval_batch_size)
 
 
@@ -369,6 +369,7 @@ if __name__ == '__main__':
     parser.add_argument("--graph-batch-size", type=int, default=30000, help="number of edges to sample in each training epoch")
     parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of sampled edges (see graph-batch-size) used as positive sample")
     parser.add_argument("--negative-sample", type=int, default=10, help="number of negative samples per positive sample")
+    parser.add_argument("--graph-perc", type=float, default=1.0, help="percentage of the graph to be used, 1 means all graph, 0.5 means half the triples for each relation.")
     parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
 
     args = parser.parse_args()
