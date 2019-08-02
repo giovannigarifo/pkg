@@ -5,11 +5,12 @@ from enum import Enum
 from rdflib.namespace import RDF
 
 
+PURL = Namespace("http://purl.org/dc/terms/")
+
 class GeraniumNamespace(Enum):
     GERANIUM_PUB = Namespace("http://geranium-project.org/publications/")
     GERANIUM_AUT = Namespace("http://geranium-project.org/authors/")
     GERANIUM_JOU = Namespace("http://geranium-project.org/journals/")
-    PURL = Namespace("http://purl.org/dc/terms/")
 
 class GeraniumOntology(Enum):
     GERANIUM_ONTOLOGY_PUB = URIRef("http://geranium-project.org/ontology/Publication")
@@ -66,7 +67,7 @@ class PublicationsDataset:
         for rel in range(1, self.num_relations):
             rel_triples = dict_rel_triples.get(rel) # all triples for this relation
             num_triples = len(rel_triples)
-
+            
             num_train = int(num_triples * train_perc)
             self.train_triples.extend(rel_triples[:num_train])
 
@@ -106,7 +107,7 @@ def readFileInGraph(filepath: str = "../../data/serialized.xml"):
     return g
 
 
-def buildDataFromGraph(g: Graph) -> PublicationsDataset:
+def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     '''
     This functions will scrape from the rdflib.Graph "g" the data required for the classification.
     '''
@@ -122,8 +123,12 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
             (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g or \
             (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
             nodes.add(s)
-            
-    num_nodes = len(nodes)
+    
+    # take only some nodes based on the percentage defined by graphperc
+    num_nodes = int(len(nodes) * graphperc)
+    while num_nodes != len(nodes):
+        nodes.pop()
+
     nodes_dict = {uri: index for (index, uri) in enumerate(nodes)} # build nodes dictionary: key = node's URIref object, value = node index
 
     # 2. Build the following dictionaries to gather labels and relations data:
@@ -136,19 +141,22 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
     relations_set = set() 
 
     for (s,p,o) in g.triples((None, None, None)):
-        # save label of node in dictionary
-        if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g: # s it's a publication
-            labels_dict[nodes_dict.get(s)] = Label.PUBLICATION.value 
-        elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g:
-            labels_dict[nodes_dict.get(s)] = Label.AUTHOR.value
-        elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g:
-            labels_dict[nodes_dict.get(s)] = Label.JOURNAL.value    
-        elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: #s it's a TMF topic
-            labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
-            
+        
         # if it's a triple between nodes, add predicate to relation set (=> no duplicates allowed)
         if s in nodes and o in nodes: 
-            relations_set.add(p)    
+            relations_set.add(p)
+
+        # save label of node in dictionary
+        if s in nodes:
+            if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g: # s it's a publication
+                labels_dict[nodes_dict.get(s)] = Label.PUBLICATION.value 
+            elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g:
+                labels_dict[nodes_dict.get(s)] = Label.AUTHOR.value
+            elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g:
+                labels_dict[nodes_dict.get(s)] = Label.JOURNAL.value    
+            elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: #s it's a TMF topic
+                labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
+                
 
     logging.debug("\nRelations found:")
     for relation in relations_set:
@@ -177,20 +185,24 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
         edge_list.append((i, i, 0))
 
     for s,p,o in g.triples((None,None,None)):
-        if(p in relations_dict 
-            and (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g): # only topics, no author keywords
-            src_id = nodes_dict.get(s)
-            dst_id = nodes_dict.get(o)
-            rel_id = relations_dict.get(p)
-            # add edge in both direction
-            edge_list.append((src_id, dst_id, 2*rel_id - 1))
-            edge_list.append((dst_id, src_id, 2*rel_id)) #reverse relation
+        if(p in relations_dict and s in nodes and o in nodes): # s and o have to be selected nodes (depends on graphperc) 
+            if p == PURL.subject and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
+                pass # only TMF topics, no author keywords
+            else:
+                src_id = nodes_dict.get(s)
+                dst_id = nodes_dict.get(o)
+                rel_id = relations_dict.get(p)
+                # add edge in both direction
+                edge_list.append((src_id, dst_id, 2*rel_id - 1))
+                edge_list.append((dst_id, src_id, 2*rel_id)) #reverse relation
            
     # edges lists used by RGCN
     edges_sources = [edge[0] for edge in edge_list]
     edges_destinations = [edge[1] for edge in edge_list]
     edges_relations = [edge[2] for edge in edge_list]
     edges_norms = [1 for edge in edge_list] # TODO
+
+    print(edge_list)
 
     logging.debug("\n...finished, some stats:")
     logging.debug(" - Number of nodes: %d" % num_nodes)
@@ -201,7 +213,29 @@ def buildDataFromGraph(g: Graph) -> PublicationsDataset:
     return PublicationsDataset(num_nodes, num_relations, num_labels, labels, edges_sources, edges_destinations, edges_relations, edges_norms)
 
 
-def rdfToData(filepath: str = "serialized.xml", job: str = "classification") -> PublicationsDataset:
+def topicSampling(g: Graph, num_topics_to_remove: int):
+    '''
+    Removes from the graph a number of "num_topics_to_remove" topics for each triple (paper, subject, topic), the
+    triple is removed only if the topic has been already seen at least one time.
+    
+    The removed triples are collected so that they can be later added in the evaluation graph to check
+    if the model is able to give them an high score, thus to be able to correctly predict the topic of a paper.
+    '''
+    seen_topics = dict()
+    seen_papers = dict()
+
+    for s,p,o in g.triples((None, PURL.subject, None)):
+        if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: # only TMF topics, discard user keywords
+            if not seen_papers.get(s):
+                seen_papers[s] = True
+                for _,_,topic in g.triples((s,PURL.subject, None)):
+                    if (topic, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: # only TMF topics
+                        pass # TODO
+                        
+                    
+
+
+def rdfToData(filepath: str = "serialized.xml", graphperc: float = 1.0, job: str = "classification") -> PublicationsDataset:
     '''
     return a data tuple that contains all the required data sctructures
     to build an RGCN-based model
@@ -209,12 +243,19 @@ def rdfToData(filepath: str = "serialized.xml", job: str = "classification") -> 
     # setup logging
     logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
+    # from RDF file to rdflib Graph
+    g = readFileInGraph(filepath)
+
     if job == "classification":
-        return buildDataFromGraph(readFileInGraph(filepath))
+        return buildDataFromGraph(g)
+    
     elif job == "link-prediction":
-        data = buildDataFromGraph(readFileInGraph(filepath))
-        data.initTrainValidTestTriples();
+
+        #topicSampling(g, 2) # remove validation topics from rdflib graph
+        data = buildDataFromGraph(g, graphperc)
+        data.initTrainValidTestTriples()
         return data
+    
     else:
         logging.error("use as job \"classification\" or \"link-prediction\"")
         exit(0)
