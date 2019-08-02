@@ -8,6 +8,7 @@ https://github.com/MichSchli/RelationPrediction
 import numpy as np
 import torch
 import dgl
+import os
 
 #######################################################################
 #
