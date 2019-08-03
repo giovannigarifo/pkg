@@ -398,7 +398,7 @@ batch_s_list = []
 batch_r_list = []
 batch_o_list = []
 
-def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
+def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread = False):
     """ 
     Export score associated to each triple included in the validation dataset.
     This function is called for each evaluation batch.
@@ -417,27 +417,38 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
     global batch_s_list 
     global batch_r_list
     global batch_o_list
+    global score_list
 
     batch_s_list = create_list_from_batch(s, emb_nodes)
     batch_r_list = create_list_from_batch(r, emb_rels)
     batch_o_list = create_list_from_batch(o, emb_nodes)
     
-    t1 = time.time()
+    #t1 = time.time()
+    
+    if multithread is False:
+        for row_index, row in enumerate(score):
+            for col_index, col in enumerate(row):
+                s_id = str(batch_s_list[row_index]["id"])
+                r_id = str(batch_r_list[row_index]["id"])
+                o_id = str(batch_o_list[row_index]["id"])
+                # score tensor includes also perturbed triples, for such reason
+                # I need to get data from the correct column
+                if str(col_index) == str(o_id):
+                    score_value = col
+                    score_dict = {"s": s_id, "r": r_id, "o": o_id, "score": score_value.item()}
+                    score_list.append(score_dict)
+    else:
+        row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
+        thread_pool = ThreadPool()
+        thread_pool.map(extractTripleScore, row_idx_list)
+        thread_pool.close()
+        thread_pool.join()
 
-    row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
-    assert len(score) == len(row_idx_list)
-
-    thread_pool = ThreadPool()
-    thread_pool.map(job, row_idx_list)
-    thread_pool.close()
-    thread_pool.join()
-
-    t2 = time.time()
-    print("time elapsed: ", t2-t1)
-
+    #t2 = time.time()
+    #print("time elapsed: ", t2-t1)
     return score_list
 
-def job(row_idx_list):
+def extractTripleScore(row_idx_list):
     '''
     Receives a tuple that contains row_index and row tensor for the scores of a batch,
     extracts from the row 
