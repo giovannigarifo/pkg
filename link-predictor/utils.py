@@ -9,6 +9,9 @@ import numpy as np
 import torch
 import dgl
 import os
+import time
+from multiprocessing.pool import ThreadPool
+import json
 
 #######################################################################
 #
@@ -285,10 +288,10 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
 
         # get the embeddings of the objects of the validation triples for this batch
         target = b[batch_start: batch_end] 
-
+        
         # export scores for this batch
         score_list.extend(export_triples_score(batch_a, batch_r, target, embedding, w, score))
-
+        
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         ranks.append(sort_and_rank(score, target))
 
@@ -366,13 +369,17 @@ def evaluate(epoch,
 
 
 
+
+######################################################
+# Utility functions to retrieve score for each triple
+######################################################
+
 def print_scores_as_json(score_list, perturb_str, epoch):
     dir_path = "./output/epoch_" + str(epoch) + "/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
-    with open(dir_path + perturb_str + "_" + "_score.json", "w") as f:
+    with open(dir_path + perturb_str + "_score.json", "w") as f:
         json.dump(score_list, f, ensure_ascii=False, indent=4)
-
 
 def create_list_from_batch(batch, embedding):
     """ 
@@ -386,12 +393,16 @@ def create_list_from_batch(batch, embedding):
     return batch_list
 
 
+score_list = []
+batch_s_list = []
+batch_r_list = []
+batch_o_list = []
+
 def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
     """ 
     Export score associated to each triple included in the validation dataset.
     This function is called for each evaluation batch.
-    Exported scores could be useful for a deep analysis of the evaluation
-    results and are necessary for the refinement process of the SEMI tool.
+    Exported scores could be useful for a deep analysis of the evaluation results
 
     Arguments:
         s -- tensor batch of subject ids
@@ -403,14 +414,43 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
     Returns:
         score_list -- list of dictionaries including triple ids and the associated score
     """
+    global batch_s_list 
+    global batch_r_list
+    global batch_o_list
+
     batch_s_list = create_list_from_batch(s, emb_nodes)
     batch_r_list = create_list_from_batch(r, emb_rels)
     batch_o_list = create_list_from_batch(o, emb_nodes)
+    
+    t1 = time.time()
 
-    # Prepare a list of dicts containing the triples and its scores
-    score_list = []
-    for row_index, row in enumerate(score):
-        for col_index, col in enumerate(row):
+    row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
+    assert len(score) == len(row_idx_list)
+
+    thread_pool = ThreadPool()
+    thread_pool.map(job, row_idx_list)
+    thread_pool.close()
+    thread_pool.join()
+
+    t2 = time.time()
+    print("time elapsed: ", t2-t1)
+
+    return score_list
+
+def job(row_idx_list):
+    '''
+    Receives a tuple that contains row_index and row tensor for the scores of a batch,
+    extracts from the row 
+    '''
+    global score_list
+    global batch_s_list 
+    global batch_r_list
+    global batch_o_list
+    row_index = row_idx_list[0]
+    row = row_idx_list[1] # score tensor
+    local_store_list = []
+
+    for col_index, col in enumerate(row):
             s_id = str(batch_s_list[row_index]["id"])
             r_id = str(batch_r_list[row_index]["id"])
             o_id = str(batch_o_list[row_index]["id"])
@@ -418,7 +458,7 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score):
             # I need to get data from the correct column
             if str(col_index) == str(o_id):
                 score_value = col
-                score_dict = {"s": s_id, "r": r_id,
-                              "o": o_id, "score": score_value.item()}
-                score_list.append(score_dict)
-    return score_list
+                score_dict = {"s": s_id, "r": r_id, "o": o_id, "score": score_value.item()}
+                local_store_list.append(score_dict)
+    
+    score_list.append(local_store_list)
