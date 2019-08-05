@@ -32,7 +32,8 @@ class PublicationsDataset:
     Encapsulate the informations needed by the RGCN to work with the publications dataset
     '''
     def __init__(self, num_nodes: int, num_relations: int, num_labels: int, labels: list, \
-        edges_sources: list, edges_destinations: list, edges_relations: list, edges_norms: list):
+        edges_sources: list, edges_destinations: list, edges_relations: list, edges_norms: list, \
+        id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
         self.num_nodes = num_nodes # number of nodes in the graph
         self.num_relations = num_relations # number of relations in the graph
         self.num_labels = num_labels # number of labels of the nodes
@@ -41,6 +42,8 @@ class PublicationsDataset:
         self.edges_destinations = edges_destinations # list, dest node for i-th edge
         self.edges_relations = edges_relations # list, relation type for i-th edge
         self.edges_norms = edges_norms # list, norm value for i-th edge
+        self.id_to_node_uri_dict = id_to_node_uri_dict # used to retrieve nodes URIs from IDs (during scoring)
+        self.id_to_rel_uri_dict = id_to_rel_uri_dict # used for retrieve relations URIs from IDs (during scoring)
         
         # used only for link-prediction
         self.train_triples = list()
@@ -149,11 +152,11 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
         # save label of node in dictionary
         if s in nodes:
             if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g: # s it's a publication
-                labels_dict[nodes_dict.get(s)] = Label.PUBLICATION.value 
+                labels_dict[nodes_dict.get(s)] = Label.PUBLICATION.value
             elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g:
                 labels_dict[nodes_dict.get(s)] = Label.AUTHOR.value
             elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g:
-                labels_dict[nodes_dict.get(s)] = Label.JOURNAL.value    
+                labels_dict[nodes_dict.get(s)] = Label.JOURNAL.value
             elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: #s it's a TMF topic
                 labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
                 
@@ -179,10 +182,13 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     #   - http://purl.org/dc/terms/creator     -> for triples: paper - creator - author
     #   - http://purl.org/dc/terms/contributor -> for triples: paper - contributor - author
     edge_list = []
+    id_to_node_uri_dict = {} # used to retrieve URIs from IDs (during scoring)
+    id_to_rel_uri_dict = {} 
 
     # add self loops (self relation)
     for i in range(num_nodes):
         edge_list.append((i, i, 0))
+    id_to_rel_uri_dict[0] = "self_relation"
 
     for s,p,o in g.triples((None,None,None)):
         if(p in relations_dict and s in nodes and o in nodes): # s and o have to be selected nodes (depends on graphperc) 
@@ -192,10 +198,17 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
                 src_id = nodes_dict.get(s)
                 dst_id = nodes_dict.get(o)
                 rel_id = relations_dict.get(p)
+                
                 # add edge in both direction
                 edge_list.append((src_id, dst_id, 2*rel_id - 1))
                 edge_list.append((dst_id, src_id, 2*rel_id)) #reverse relation
-           
+                
+                # add node and relation to dictionaries used to retrieve URIs from IDs (during scoring)
+                id_to_node_uri_dict[src_id] = s
+                id_to_node_uri_dict[dst_id] = o
+                id_to_rel_uri_dict[2*rel_id - 1] = p # TODO: same URI for inverse relation?
+                id_to_rel_uri_dict[2*rel_id] = p
+    
     # edges lists used by RGCN
     edges_sources = [edge[0] for edge in edge_list]
     edges_destinations = [edge[1] for edge in edge_list]
@@ -208,7 +221,9 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     logging.debug(" - Number of labels/classes: %d" % num_labels)
     logging.debug(" - Number of edges: %d" % len(edges_sources))
 
-    return PublicationsDataset(num_nodes, num_relations, num_labels, labels, edges_sources, edges_destinations, edges_relations, edges_norms)
+    return PublicationsDataset(num_nodes, num_relations, num_labels, labels, \
+        edges_sources, edges_destinations, edges_relations, edges_norms, \
+        id_to_node_uri_dict, id_to_rel_uri_dict)
 
 
 def topicSampling(g: Graph, num_topics_to_remove: int):

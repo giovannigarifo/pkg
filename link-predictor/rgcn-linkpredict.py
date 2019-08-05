@@ -144,18 +144,18 @@ def main(args):
 
     # load data required for the prediction task
     if(args.rdf_dataset_path):
-        data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction")
+        publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction")
     else: 
-        data = rdftodata.rdfToData(job="link-prediction")
+        publications_data = rdftodata.rdfToData(job="link-prediction")
     
-    num_nodes = data.num_nodes
-    train_data = data.train_triples # triples used for training
-    valid_data = data.valid_triples # triples used for validation
-    test_data = data.test_triples # triples used for test
-    num_rels = data.num_relations
+    num_nodes = publications_data.num_nodes
+    train_data = publications_data.train_triples # triples used for training
+    valid_data = publications_data.valid_triples # triples used for validation
+    test_data = publications_data.test_triples # triples used for test
+    num_rels = publications_data.num_relations
 
     # Convert T,V,T data to correct type
-    train_data = np.array(data.train_triples)
+    train_data = np.array(publications_data.train_triples)
     valid_data = torch.as_tensor(valid_data, dtype=torch.long) #as_tensor doesn't crate a copy
     test_data = torch.as_tensor(test_data, dtype=torch.long)
 
@@ -311,14 +311,16 @@ def main(args):
                 model.cpu() # perform validation on CPU because full graph is too large
 
             model.eval() # set evaluation mode explicitly
-        
+
             mrr = utils.evaluate(epoch,
                                 test_graph, 
                                 model, 
                                 valid_data, 
                                 num_nodes,
                                 hits=[1, 3, 10], 
-                                eval_bz=args.eval_batch_size)
+                                eval_bz=args.eval_batch_size,
+                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
+                                id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
             
             # save best model
             if mrr < best_mrr:
@@ -330,6 +332,8 @@ def main(args):
                            model_state_file)
             if use_cuda:
                 model.cuda() # activate again GPU
+            
+            exit(0)
 
 
     print("**************")

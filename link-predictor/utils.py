@@ -222,7 +222,8 @@ def sort_and_rank(score, target):
     return ranks
 
 
-def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, batch_size=100):
+def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, batch_size=100, \
+    id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
     """ 
     num_entity := num_nodes (total)
 
@@ -290,7 +291,8 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
         target = b[batch_start: batch_end] 
         
         # export scores for this batch
-        score_list.extend(export_triples_score(batch_a, batch_r, target, embedding, w, score))
+        score_list.extend(export_triples_score(\
+            batch_a, batch_r, target, embedding, w, score, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
         
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         ranks.append(sort_and_rank(score, target))
@@ -307,14 +309,16 @@ def evaluate(epoch,
             test_triplets, 
             num_entity, 
             hits=[], 
-            eval_bz=100):
+            eval_bz=100,
+            id_to_node_uri_dict: dict = {},
+            id_to_rel_uri_dict: dict = {}):
     '''
     called by main as: 
-        mrr = utils.evaluate(test_graph, 
-                            model, 
-                            valid_data, 
+        mrr = utils.evaluate(test_graph,
+                            model,
+                            valid_data,
                             num_nodes,
-                            hits=[1, 3, 10], 
+                            hits=[1, 3, 10],
                             eval_bz=args.eval_batch_size)
 
     In this function we evaluate the ability of the model to calculate an high score
@@ -342,11 +346,11 @@ def evaluate(epoch,
         print("Computing ranks...")
 
         # get ranks for the inverse of the validation triplet (o,r,s)
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz)
+        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
         print("...half way...")
 
         # get rank for the validation triplets (s,r,o)
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz)
+        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
         print("...done.")
 
         ranks = torch.cat([ranks_s, ranks_o])
@@ -398,7 +402,7 @@ batch_s_list = []
 batch_r_list = []
 batch_o_list = []
 
-def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread = False):
+def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False, id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
     """ 
     Export score associated to each triple included in the validation dataset.
     This function is called for each evaluation batch.
@@ -412,9 +416,9 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread = Fals
         emb_rels -- tensor embeddings of all relations
         score -- tensor of scores associated to eache triple, size(batch, num_of_nodes)
     Returns:
-        score_list -- list of dictionaries including triple ids and the associated score
+        score_list -- list of dictionaries including triples IDs, triples URIs and the associated score
     """
-    global batch_s_list 
+    global batch_s_list
     global batch_r_list
     global batch_o_list
     global score_list
@@ -422,7 +426,6 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread = Fals
     batch_s_list = create_list_from_batch(s, emb_nodes)
     batch_r_list = create_list_from_batch(r, emb_rels)
     batch_o_list = create_list_from_batch(o, emb_nodes)
-    
     #t1 = time.time()
     
     if multithread is False:
@@ -435,7 +438,15 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread = Fals
                 # I need to get data from the correct column
                 if str(col_index) == str(o_id):
                     score_value = col
-                    score_dict = {"s": s_id, "r": r_id, "o": o_id, "score": score_value.item()}
+                    score_dict = {
+                        "s_id": s_id,
+                        "s_uri": id_to_node_uri_dict.get(int(s_id)),
+                        "r_id": r_id,
+                        "r_uri": id_to_rel_uri_dict.get(int(r_id)),
+                        "o_id": o_id,
+                        "o_uri": id_to_node_uri_dict.get(int(o_id)),
+                        "score": score_value.item()
+                    }
                     score_list.append(score_dict)
     else:
         row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
@@ -457,6 +468,7 @@ def extractTripleScore(row_idx_list):
     global batch_s_list 
     global batch_r_list
     global batch_o_list
+
     row_index = row_idx_list[0]
     row = row_idx_list[1] # score tensor
     local_store_list = []
@@ -469,7 +481,12 @@ def extractTripleScore(row_idx_list):
             # I need to get data from the correct column
             if str(col_index) == str(o_id):
                 score_value = col
-                score_dict = {"s": s_id, "r": r_id, "o": o_id, "score": score_value.item()}
+                score_dict = {
+                        "s_id": s_id,
+                        "r_id": r_id,
+                        "o_id": o_id,
+                        "score": score_value.item()
+                    }
                 local_store_list.append(score_dict)
     
     score_list.append(local_store_list)
