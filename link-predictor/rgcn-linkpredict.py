@@ -332,8 +332,6 @@ def main(args):
                            model_state_file)
             if use_cuda:
                 model.cuda() # activate again GPU
-            
-            exit(0)
 
 
     print("**************")
