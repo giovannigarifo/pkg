@@ -234,6 +234,8 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
 
 
     Calculate the rank of each validation triplet (a,r,b).
+
+    please note: rank != score
     
     1. perform distmult over (a,r,every_node_of_graph), equal to apply a perturbation to the object 
        of the triplets. This means that it will also calculate the distmult for the correct triplet, (a,r,b).
@@ -290,15 +292,19 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
         # get the embeddings of the objects of the validation triples for this batch
         target = b[batch_start: batch_end] 
         
-        # export scores for this batch
-        score_list.extend(export_triples_score(\
-            batch_a, batch_r, target, embedding, w, score, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
+        # export scores for this batch (if requested)
+        if id_to_node_uri_dict and id_to_rel_uri_dict: # false if empty
+            score_list.extend(export_triples_score(\
+                batch_a, batch_r, target, embedding, w, score, multithread=False,
+                id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
         
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         ranks.append(sort_and_rank(score, target))
 
-    print_scores_as_json(score_list, perturb_str, epoch) # export all scores
-    return torch.cat(ranks)
+    if id_to_node_uri_dict and id_to_rel_uri_dict:
+        print_scores_as_json(score_list, perturb_str, epoch) # export all scores
+
+    return torch.cat(ranks), score_list # this will be empty if URI dicts are empty
 
 
 # TODO (lingfan): implement filtered metrics
@@ -306,7 +312,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
 def evaluate(epoch,
             test_graph, 
             model, 
-            test_triplets, 
+            test_triplets, # can be both valid_data during validation or test_data during evaluation
             num_entity, 
             hits=[], 
             eval_bz=100,
@@ -322,11 +328,11 @@ def evaluate(epoch,
                             eval_bz=args.eval_batch_size)
 
     In this function we evaluate the ability of the model to calculate an high score
-    for the validation triplets.
+    for the "test_triplets".
 
     1. embeddings and w_rel for the model are calculated for ALL triplets (full graph)
-    2. ranks are calculated for each validation triplet, the rank is the position where the correct triplet
-       is found when sorting ALL the possible triplets (obtained by keeping "s,p" fo the validation triplet 
+    2. ranks are calculated for each "test_triplets" triplet, the rank is the position where the correct triplet
+       is found when sorting ALL the possible triplets (obtained by keeping "s,p" fo the "test_triplets" triplet 
        and put as "o" every possible node) by score (calculated using distmult)
     3. calcualte MRR for this batch, a measure that gives us an insight on how in average the model
        is able to rank (=lowest position, 1== highest rank) a correct triplet
@@ -337,7 +343,7 @@ def evaluate(epoch,
         # for the model under evaluation
         embedding, w = model.evaluate(test_graph)
         
-        # get s,r,o from validation data
+        # get s,r,o from test_triplets data
         s = test_triplets[:, 0]
         r = test_triplets[:, 1]
         o = test_triplets[:, 2]
@@ -346,13 +352,16 @@ def evaluate(epoch,
         print("Computing ranks...")
 
         # get ranks for the inverse of the validation triplet (o,r,s)
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
+        ranks_s, score_list = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch,
+            eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
         print("...half way...")
 
         # get rank for the validation triplets (s,r,o)
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
+        ranks_o, score_list_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch,
+            eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
         print("...done.")
 
+        score_list.extend(score_list_o)
         ranks = torch.cat([ranks_s, ranks_o])
         ranks += 1 # change to 1-indexed, because the highest rank is 0
 
@@ -369,7 +378,7 @@ def evaluate(epoch,
 
         print("\n")
 
-    return mrr.item()
+    return mrr.item(), score_list
 
 
 
@@ -402,7 +411,8 @@ batch_s_list = []
 batch_r_list = []
 batch_o_list = []
 
-def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False, id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
+def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False, 
+                        id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
     """ 
     Export score associated to each triple included in the validation dataset.
     This function is called for each evaluation batch.
@@ -448,6 +458,7 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False,
                         "score": score_value.item()
                     }
                     score_list.append(score_dict)
+               
     else:
         row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
         thread_pool = ThreadPool()
@@ -462,10 +473,10 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False,
 def extractTripleScore(row_idx_list):
     '''
     Receives a tuple that contains row_index and row tensor for the scores of a batch,
-    extracts from the row 
+    extracts from the row
     '''
     global score_list
-    global batch_s_list 
+    global batch_s_list
     global batch_r_list
     global batch_o_list
 
@@ -490,3 +501,62 @@ def extractTripleScore(row_idx_list):
                 local_store_list.append(score_dict)
     
     score_list.append(local_store_list)
+
+
+
+#########################################################################
+# Utility functions to analyze in depth the result of the testing phase
+#########################################################################
+
+def analyze_test_results(mrr_test,
+                        test_data,
+                        score_list, # list of score for each test data triplet
+                        id_to_node_uri_dict: dict = {},
+                        id_to_rel_uri_dict: dict = {}):
+    
+    # analyze score for paper-subject-topic test triples
+    score_subject_thresholds = [
+        [0, 0.9], # number of scores equal or above 0.9
+        [0, 0.7], # number of scores between 0.7 and 0.9
+        [0, 0.5], # number of scores between 0.5 and 0.7
+        [0, 0.3], # number of scores between 0.3 and 0.5
+        [0, 0.1], # number of scores equal or below 0.1
+        [0, 0]  # number of scores below 0.1
+    ]
+    
+    num_test_data_topic_triples = 0
+    for triple in test_data:
+        if triple[1] != 0: # SELF RELATION  !!!
+            if "http://purl.org/dc/terms/subject" in id_to_rel_uri_dict.get(triple[1].item()):
+                num_test_data_topic_triples+=1
+
+    num_score_list_topic_triples=0
+    for score_dict in score_list:
+        if "http://purl.org/dc/terms/subject" in str(score_dict.get("r_uri")):
+            num_score_list_topic_triples+=1
+            score = score_dict.get("score")
+            if score >= score_subject_thresholds[0][1]:
+                score_subject_thresholds[0][0] += 1 
+            if score < score_subject_thresholds[0][1] and score >= score_subject_thresholds[1][1]:
+                score_subject_thresholds[1][0] += 1 
+            if score < score_subject_thresholds[1][1] and score >= score_subject_thresholds[2][1]:
+                score_subject_thresholds[2][0] += 1 
+            if score < score_subject_thresholds[2][1] and score >= score_subject_thresholds[3][1]:
+                score_subject_thresholds[3][0] += 1 
+            if score < score_subject_thresholds[3][1] and score >= score_subject_thresholds[4][1]:
+                score_subject_thresholds[4][0] += 1
+            if score < score_subject_thresholds[4][1]:
+                score_subject_thresholds[5][0] += 1 
+
+    print("Length of whole score_list: ", len(score_list))
+    print("Number of test triples of kind paper-subject-topic: ", num_test_data_topic_triples)
+    print("Number of dict in score_list for triples of kind paper-subject-topic: ", num_score_list_topic_triples)
+    for summary in score_subject_thresholds:
+        print("Number of triples with score in range with lower threshold {range}: {n}".format(range=summary[1], n=summary[0]))
+            
+
+            
+
+
+
+

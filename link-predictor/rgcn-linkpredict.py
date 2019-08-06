@@ -301,26 +301,24 @@ def main(args):
               format(epoch, loss.item(), best_mrr, forward_time[-1], backward_time[-1]))
 
         optimizer.zero_grad() # zeroes the gradients for next training iteration
-
+        
         # validation: evaluate over the test graph
         if epoch % args.evaluate_every == 0:
 
-            print("/#/ Perform evaluation...".format(e=epoch))  
-            
+            print("/#/ Perform validation...".format(e=epoch))
+           
             if use_cuda:
                 model.cpu() # perform validation on CPU because full graph is too large
 
             model.eval() # set evaluation mode explicitly
 
             mrr = utils.evaluate(epoch,
-                                test_graph, 
-                                model, 
-                                valid_data, 
+                                test_graph,
+                                model,
+                                valid_data,
                                 num_nodes,
                                 hits=[1, 3, 10], 
-                                eval_bz=args.eval_batch_size,
-                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
-                                id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+                                eval_bz=args.eval_batch_size)
             
             # save best model
             if mrr < best_mrr:
@@ -340,16 +338,25 @@ def main(args):
     print("Mean forward time: {:4f}s".format(np.mean(forward_time)))
     print("Mean Backward time: {:4f}s\n".format(np.mean(backward_time)))
 
-    print("/#/ Perform testing of the best model found...")
+    print("/#/ Perform evaluation of the best model found on test data...")
     # use best model checkpoint
     checkpoint = torch.load(model_state_file)
     if use_cuda:
         model.cpu() # test on CPU
     model.eval()
     model.load_state_dict(checkpoint['state_dict'])
-    print("Using best epoch: {}".format(checkpoint['epoch']))
-    utils.evaluate(epoch, test_graph, model, test_data, num_nodes, hits=[1, 3, 10],
-                   eval_bz=args.eval_batch_size)
+    print("Using best epoch on test data: {}".format(checkpoint['epoch']))
+
+    mrr_test, score_list = utils.evaluate("best_on_test_data", test_graph, model, test_data, num_nodes, hits=[1, 3, 10],
+                    eval_bz=args.eval_batch_size, 
+                    id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # export scores
+                    id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+
+    # retrieve score for triplets paper-subject-topic
+    utils.analyze_test_results(mrr_test, test_data, score_list,
+        id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
+        id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+
 
 
 if __name__ == '__main__':
