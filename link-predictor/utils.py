@@ -369,7 +369,7 @@ def evaluate(epoch,
         # la tripla di validazione compare tra le prime 7 triple (ordinate per dist-mult score).
 
         # MRR definition: The mean of all reciprocal ranks for the true candidates over the test set (1/rank)
-        mrr = torch.mean(1.0 / ranks.float()) 
+        mrr = torch.mean(1.0 / ranks.float())
         print("- MRR (raw): {:.6f}".format(mrr.item()))
 
         for hit in hits:

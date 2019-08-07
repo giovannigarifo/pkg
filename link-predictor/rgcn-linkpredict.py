@@ -315,8 +315,7 @@ def main(args):
                 model.cpu() # perform validation on CPU because full graph is too large
 
             model.eval() # set evaluation mode explicitly
-
-            mrr = utils.evaluate(epoch,
+            mrr, _ = utils.evaluate(epoch,
                                 test_graph,
                                 model,
                                 valid_data,
