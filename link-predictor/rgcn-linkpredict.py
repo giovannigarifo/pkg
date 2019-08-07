@@ -362,8 +362,9 @@ def main(args):
         id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
 
     # print loss_list for debug
-    for epoch,loss in enumerate(loss_list):
-        print("Epoch {e} loss: {l}".format(e=epoch,l=loss))
+    print("Loss values for each training epoch:")
+    for index, l in enumerate(loss_list):
+        print("Epoch {e} loss: {l}".format(e=index, l=l))
 
 
 
