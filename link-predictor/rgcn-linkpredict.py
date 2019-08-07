@@ -302,7 +302,7 @@ def main(args):
               format(epoch, loss.item(), best_mrr, forward_time[-1], backward_time[-1]))
 
         # save loss behavior
-        loss_list[epoch] = loss.item()
+        loss_list.append(loss.item())
 
         optimizer.zero_grad() # zeroes the gradients for next training iteration
         
