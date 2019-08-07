@@ -241,6 +241,7 @@ def main(args):
 
     epoch = 0
     best_mrr = 0
+    loss_list = []
 
     while True:
         model.train() # set training mode explicitly
@@ -300,6 +301,9 @@ def main(args):
         print("- Stats: Epoch {:04d} | Loss {:.4f} | Best MRR {:.4f} | Forward {:.4f}s | Backward {:.4f}s \n".
               format(epoch, loss.item(), best_mrr, forward_time[-1], backward_time[-1]))
 
+        # save loss behavior
+        loss_list[epoch] = loss.item()
+
         optimizer.zero_grad() # zeroes the gradients for next training iteration
         
         # validation: evaluate over the test graph
@@ -356,6 +360,10 @@ def main(args):
     utils.analyze_test_results(mrr_test, test_data, score_list,
         id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
         id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+
+    # print loss_list for debug
+    for epoch,loss in enumerate(loss_list):
+        print("Epoch {e} loss: {l}".format(e=epoch,l=loss))
 
 
 
