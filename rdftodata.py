@@ -57,7 +57,9 @@ class PublicationsDataset:
         '''
         assert valid_perc + test_perc + train_perc == 1
 
-        logging.debug("Splitting triples in Train, Test and Validation sets...")
+        # setup logging
+        logger = logging.getLogger('rdftodata_logger')
+        logger.debug("Splitting triples in Train, Test and Validation sets...")
 
         triples = list(zip(self.edges_sources, self.edges_relations, self.edges_destinations))
 
@@ -94,19 +96,23 @@ class PublicationsDataset:
                 + len(self.test_triples) \
                 - num_self_rel + self.num_nodes), "Wrong number of Train, Valid, Test triples" # all the self relations added
 
-        logging.debug("...finished:")
-        logging.debug(" - Number of training triples: {}".format(len(self.train_triples)))
-        logging.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
-        logging.debug(" - Number of test triples: {}".format(len(self.test_triples)))
+        logger.debug("...finished:")
+        logger.debug(" - Number of training triples: {}".format(len(self.train_triples)))
+        logger.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
+        logger.debug(" - Number of test triples: {}".format(len(self.test_triples)))
 
 
 def readFileInGraph(filepath: str = "../../data/serialized.xml"):
     '''
     Given a /path/to/file, parse it in a rdflib Graph object
     '''
+    # setup logging
+    logger = logging.getLogger('rdftodata_logger')
+    
     g = Graph()
     g.parse(filepath, util.guess_format(filepath))
-    logging.debug("Input file has been read in rdflib Graph object")
+    
+    logger.debug("Input file has been read in rdflib Graph object")
     return g
 
 
@@ -114,8 +120,9 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     '''
     This functions will scrape from the rdflib.Graph "g" the data required for the classification.
     '''
-
-    logging.debug("Start building the data structures from the rdflib Graph...")
+    # setup logging
+    logger = logging.getLogger('rdftodata_logger')
+    logger.debug("Start building the data structures from the rdflib Graph...")
 
     # 1. retrieve the set (no duplicates) of nodes for the RGCN task: only the listed entities
     #    are interpreted as nodes for the learning task
@@ -161,9 +168,9 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
                 labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
                 
 
-    logging.debug("\nRelations found:")
+    logger.debug("\nRelations found:")
     for relation in relations_set:
-        logging.debug("- {r}".format(r=relation))
+        logger.debug("- {r}".format(r=relation))
     
     assert len(labels_dict) == num_nodes, "Some labels are missing!"
 
@@ -215,11 +222,11 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     edges_relations = [edge[2] for edge in edge_list]
     edges_norms = [1 for edge in edge_list] # TODO
 
-    logging.debug("\n...finished, some stats:")
-    logging.debug(" - Number of nodes: %d" % num_nodes)
-    logging.debug(" - Number of relations: %d" % num_relations)
-    logging.debug(" - Number of labels/classes: %d" % num_labels)
-    logging.debug(" - Number of edges: %d" % len(edges_sources))
+    logger.debug("\n...finished, some stats:")
+    logger.debug(" - Number of nodes: %d" % num_nodes)
+    logger.debug(" - Number of relations: %d" % num_relations)
+    logger.debug(" - Number of labels/classes: %d" % num_labels)
+    logger.debug(" - Number of edges: %d" % len(edges_sources))
 
     return PublicationsDataset(num_nodes, num_relations, num_labels, labels, \
         edges_sources, edges_destinations, edges_relations, edges_norms, \
@@ -254,7 +261,7 @@ def rdfToData(filepath: str = "serialized.xml", graphperc: float = 1.0, job: str
     to build an RGCN-based model
     '''
     # setup logging
-    logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+    logger = logging.getLogger('rdftodata_logger')
 
     # from RDF file to rdflib Graph
     g = readFileInGraph(filepath)
@@ -270,7 +277,7 @@ def rdfToData(filepath: str = "serialized.xml", graphperc: float = 1.0, job: str
         return data
     
     else:
-        logging.error("use as job \"classification\" or \"link-prediction\"")
+        logger.error("use as job \"classification\" or \"link-prediction\"")
         exit(0)
 
 
@@ -280,7 +287,7 @@ def main(argv):
     '''
 
     # setup logging
-    logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
+    logger = logging.getLogger('rdftodata_logger')
 
     # test arguments
     if(len(argv) == 1):
@@ -291,7 +298,7 @@ def main(argv):
             exit(0)
         filepath = argv[1] # path from user
     else:
-        logging.error("wrong arguments: `python3 script.py /path/to/file.(xml|nt|rdf)`")
+        logger.error("wrong arguments: `python3 script.py /path/to/file.(xml|nt|rdf)`")
         exit(-1)
 
     # read file to rdflib's graph 
