@@ -12,6 +12,8 @@ import os
 import time
 from multiprocessing.pool import ThreadPool
 import json
+import matplotlib.pyplot as plt
+
 
 #######################################################################
 #
@@ -197,12 +199,17 @@ def negative_sampling(pos_samples, num_entity, negative_rate):
 
 def sort_and_rank(score, target):
     '''
-    From the scores of each triplet (a,r,every_node_of_graph) obtain the rank of the valid triplet (a,r,target)
+    score: Tensor of dimension "BATCH_SIZE x NUM_NODES", a row for each triple (a,r,b) in the batch,
+            each row contains the scores for all the corrupted triples (a,r,all_nodes), among all
+            the scores there will be also the score for the correct triple (a,r,b)
+    
+    target: contains the index of the object nodes of the batch triplets (a,r,b). Contains all indicies of "b" entities. 
+
+    From the scores obtain the rank of the valid triplet (a,r,target)
     1. sort the scores
     2. calculate where the (a,r,target) triplets (=validation triplets) are positioned in the sorted scores
     3. the position obtained is the rank of the correct triplet (a,r,target)
     '''
-
     # in indices I get the nodes_id of "every_nodes" for the triplets (a,r,every_nodes), sorted 
     # from the highest score to the lowest 
     _, indices = torch.sort(score, dim=1, descending=True) # indices.shape = batchsize x numNodes
@@ -287,10 +294,10 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
         score = torch.sum(out_prod, dim=0) # size E x V <=> BATCH_SIZE x NUM_NODES
         
         # cap the score between 0 and 1
-        score = torch.sigmoid(score) 
+        score = torch.sigmoid(score)
 
-        # get the embeddings of the objects of the validation triples for this batch
-        target = b[batch_start: batch_end] 
+        # get the indices of the objects of the validation triples for this batch
+        target = b[batch_start: batch_end]
         
         # export scores for this batch (if requested)
         if id_to_node_uri_dict and id_to_rel_uri_dict: # false if empty
@@ -555,7 +562,16 @@ def analyze_test_results(mrr_test,
         print("Number of triples with score in range with lower threshold {range}: {n}".format(range=summary[1], n=summary[0]))
             
 
-            
+def plot_loss_to_file(loss_list):
+    loss_values = np.array(loss_list).T 
+    epochs_values = np.arange(len(loss_list))
+   
+    plt.plot(epochs_values, loss_values, label="Loss")
+    plt.xticks(epochs_values)
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title("Loss behavior over epochs")
+    plt.savefig('output/loss_over_epochs.png')
 
 
 
