@@ -320,8 +320,10 @@ def main(args):
                                 model,
                                 valid_data,
                                 num_nodes,
-                                hits=[1, 3, 10], 
-                                eval_bz=args.eval_batch_size)
+                                hits=[1, 3, 10],
+                                eval_bz=args.eval_batch_size,
+                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
+                                id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
             
             # save best model
             if mrr < best_mrr:

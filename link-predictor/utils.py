@@ -203,24 +203,29 @@ def sort_and_rank(score, target):
             each row contains the scores for all the corrupted triples (a,r,all_nodes), among all
             the scores there will be also the score for the correct triple (a,r,b)
     
-    target: contains the index of the object nodes of the batch triplets (a,r,b). Contains all indicies of "b" entities. 
+    target: contains the index of the object nodes of the batch triplets (a,r,b). Contains all indicies of "b" entities.
 
     From the scores obtain the rank of the valid triplet (a,r,target)
     1. sort the scores
     2. calculate where the (a,r,target) triplets (=validation triplets) are positioned in the sorted scores
     3. the position obtained is the rank of the correct triplet (a,r,target)
+
+    Returns a tensor of shape "BATCH_SIZE x 1", where in each row is present the rank obtained by
+    a triple (a,r,b) of the current batch
     '''
-    # in indices I get the nodes_id of "every_nodes" for the triplets (a,r,every_nodes), sorted 
-    # from the highest score to the lowest 
+    # in indices I get the index of "every_node" for the triplets (a,r,every_nodes), sorted 
+    # from the highest score to the lowest. Will also contain the index of the true object "b".
+    # Here is done the actual conversion from "score" to "rank"
     _, indices = torch.sort(score, dim=1, descending=True) # indices.shape = batchsize x numNodes
     
-    # target is transformed to a column vector, and each value is compared to the values in the columns of indices
-    # there is only one "1" for each row in cmp_res, this is used to extract where is positioned the target value
+    # target is transformed to a column vector, and each value (index of true object "b") is compared to the
+    # values in the columns of indices => search for the index of "o" in sorted.
+    # In cmp_res there is only one "1" for each row, this is used to extract where is positioned the target value
     # so to calculate the rank for the correct triplet (a,r,target)
-    cmp_res = indices == target.view(-1, 1)
+    cmp_res = indices == target.view(-1, 1) # cmp_res.shape = batchsize x numNodes
 
-    # get the index of the correct triplet (a,r,target) from cmp_res, **the index is the rank**, that goes from 0 to num_nodes, hopefully 
-    # the rank for the validation triplet should be lowest possible, ideally 1, this would mean that the valid triplet got the highest score
+    # get the index of the correct triplet (a,r,target) in cmp_res, **the index is the rank**, that goes from 0 to num_nodes, hopefully 
+    # the rank for the validation triplet should be lowest possible, ideally 0, this would mean that the valid triplet got the highest score
     indices = torch.nonzero(cmp_res)
 
     # just got the ranks, first column is added by torch.nonzero() and is useless
@@ -229,31 +234,27 @@ def sort_and_rank(score, target):
     return ranks
 
 
-def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, batch_size=100, \
+def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=100, \
     id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
-    """ 
-    num_entity := num_nodes (total)
-
-    It's called by evaluate:
-
-        ranks_s = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch, eval_bz)
-        ranks_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch, eval_bz)
-
-
+    """     
     Calculate the rank of each validation triplet (a,r,b).
 
-    please note: rank != score
+    Please note: 
+        1. rank and score are not the same, the rank is obtained from the score
+        2. The triplets contains both direct and inverse relation (done in `rdftodata.buildDataFromGraph()`)
+        3. num_entity is equal to num_nodes (total)
     
-    1. perform distmult over (a,r,every_node_of_graph), equal to apply a perturbation to the object 
+    1. perform distmult over (a,r,every_node_of_graph), equal to apply a perturbation to the object
        of the triplets. This means that it will also calculate the distmult for the correct triplet, (a,r,b).
-    2. sort the obtained distmult scores, and get the rank of the true triplets (a,r,b). 
+    2. sort the obtained distmult scores, and get the rank of the true triplets (a,r,b).
        The "Rank" is the position of the true triplet in the sorted scores for all the triplets (a,r,every_node_of_graph):
        i.e. if distmult gives the highest score for a true triplet, it will be sorted at top, and it's rank will be 0
     """
     n_batch = (num_entity + batch_size - 1) // batch_size
     ranks = []
     score_list = []
-    
+    rank_list = []
+
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
         
@@ -272,7 +273,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
         # and w_rel of the relations for the validation triples of this batch.
         #
         # it's the first product of distmult: subject_embedding * w_relation
-        emb_ar = embedding[batch_a] * w[batch_r] 
+        emb_ar = embedding[batch_a] * w[batch_r]
         
         # transpose: swap dim=0 and dim=1 => each **column** contains e*w_rel
         # unsqueeze: add a dimension of size 1 at position 2
@@ -300,33 +301,46 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, perturb_str, epoch, 
         target = b[batch_start: batch_end]
         
         # export scores for this batch (if requested)
-        if id_to_node_uri_dict and id_to_rel_uri_dict: # false if empty
-            score_list.extend(export_triples_score(\
-                batch_a, batch_r, target, embedding, w, score, multithread=False,
-                id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
+        # if id_to_node_uri_dict and id_to_rel_uri_dict: # false if empty
+        #     score_list.extend(export_triples_score(\
+        #         batch_a, batch_r, target, embedding, w, score, multithread=False,
+        #         id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
         
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
-        ranks.append(sort_and_rank(score, target))
+        batch_ranks = sort_and_rank(score, target)
+        ranks.append(batch_ranks)
 
-    if id_to_node_uri_dict and id_to_rel_uri_dict:
-        print_scores_as_json(score_list, perturb_str, epoch) # export all scores
+        # save rank_list for this batch
+        if id_to_node_uri_dict and id_to_rel_uri_dict:
+            batch_b = b[batch_start: batch_end]
+            for triple_rank in zip(batch_a, batch_r, batch_b, batch_ranks):
+                rank_dict = {
+                        "s_id": triple_rank[0].item(),
+                        "s_uri": id_to_node_uri_dict.get(int(triple_rank[0].item())),
+                        "r_id": triple_rank[1].item(),
+                        "r_uri": id_to_rel_uri_dict.get(int(triple_rank[1].item())),
+                        "o_id": triple_rank[2].item(),
+                        "o_uri": id_to_node_uri_dict.get(int(triple_rank[2].item())),
+                        "rank": triple_rank[3].item()
+                    }
+                rank_list.append(rank_dict)
 
-    return torch.cat(ranks), score_list # this will be empty if URI dicts are empty
+    return torch.cat(ranks), score_list, rank_list # last two will be empty if URI dicts are empty
 
 
 # TODO (lingfan): implement filtered metrics
 # return MRR (raw), and Hits @ (1, 3, 10)
 def evaluate(epoch,
-            test_graph, 
-            model, 
+            test_graph,
+            model,
             test_triplets, # can be both valid_data during validation or test_data during evaluation
-            num_entity, 
-            hits=[], 
+            num_entity,
+            hits=[],
             eval_bz=100,
             id_to_node_uri_dict: dict = {},
             id_to_rel_uri_dict: dict = {}):
     '''
-    called by main as: 
+    called by main as:
         mrr = utils.evaluate(test_graph,
                             model,
                             valid_data,
@@ -355,23 +369,25 @@ def evaluate(epoch,
         r = test_triplets[:, 1]
         o = test_triplets[:, 2]
 
-        print("- s,r,o shapes: ", s.shape, r.shape, o.shape)
-        print("Computing ranks...")
+        print("Computing ranks for {n} triplets...".format(n=len(test_triplets)))
 
-        # get ranks for the inverse of the validation triplet (o,r,s)
-        ranks_s, score_list = perturb_and_get_rank(embedding, w, o, r, s, num_entity, "perturb_subject", epoch,
-            eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
-        print("...half way...")
-
-        # get rank for the validation triplets (s,r,o)
-        ranks_o, score_list_o = perturb_and_get_rank(embedding, w, s, r, o, num_entity, "perturb_object", epoch,
-            eval_bz, id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict)
-        print("...done.")
-
-        score_list.extend(score_list_o)
-        ranks = torch.cat([ranks_s, ranks_o])
+        # get rank for the triplets (s,r,o)
+        ranks, score_list, rank_list = perturb_and_get_rank(
+            embedding, w, s, r, o, num_entity, epoch, eval_bz,
+            id_to_node_uri_dict=id_to_node_uri_dict,
+            id_to_rel_uri_dict=id_to_rel_uri_dict
+        )
         ranks += 1 # change to 1-indexed, because the highest rank is 0
+        
+        print("Saving JSONs...")
+        if len(score_list) > 0:
+            print("...exporting score_list, length=", len(score_list))
+            save_list_as_json(score_list, "scores", epoch) # export all scores as json
+        if len(rank_list) > 0:
+            print("...exporting rank_list, length=", len(rank_list))
+            save_list_as_json(rank_list, "ranks", epoch) # export all ranks as json
 
+        print("...done.\nComputing statistics...")
         # si riesce ad ottenere un MRR per il modello migliore di circa 0.150, vuol dire che in media
         # la tripla di validazione compare tra le prime 7 triple (ordinate per dist-mult score).
 
@@ -388,18 +404,17 @@ def evaluate(epoch,
     return mrr.item(), score_list
 
 
-
-
 ######################################################
-# Utility functions to retrieve score for each triple
+# Utility functions for testing
 ######################################################
 
-def print_scores_as_json(score_list, perturb_str, epoch):
+def save_list_as_json(list_to_print, file_name, epoch):
     dir_path = "./output/epoch_" + str(epoch) + "/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
-    with open(dir_path + perturb_str + "_score.json", "w") as f:
-        json.dump(score_list, f, ensure_ascii=False, indent=4)
+    with open(dir_path + file_name + ".json", "w") as f:
+        json.dump(list_to_print, f, ensure_ascii=False, indent=4)
+
 
 def create_list_from_batch(batch, embedding):
     """ 
@@ -510,7 +525,6 @@ def extractTripleScore(row_idx_list):
     score_list.append(local_store_list)
 
 
-
 #########################################################################
 # Utility functions to analyze in depth the result of the testing phase
 #########################################################################
@@ -537,10 +551,10 @@ def analyze_test_results(mrr_test,
             if "http://purl.org/dc/terms/subject" in id_to_rel_uri_dict.get(triple[1].item()):
                 num_test_data_topic_triples+=1
 
-    num_score_list_topic_triples=0
+    num_score_list_topic_triples = 0
     for score_dict in score_list:
         if "http://purl.org/dc/terms/subject" in str(score_dict.get("r_uri")):
-            num_score_list_topic_triples+=1
+            num_score_list_topic_triples += 1
             score = score_dict.get("score")
             if score >= score_subject_thresholds[0][1]:
                 score_subject_thresholds[0][0] += 1 

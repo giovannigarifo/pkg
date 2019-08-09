@@ -190,7 +190,7 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     #   - http://purl.org/dc/terms/contributor -> for triples: paper - contributor - author
     edge_list = []
     id_to_node_uri_dict = {} # used to retrieve URIs from IDs (during scoring)
-    id_to_rel_uri_dict = {} 
+    id_to_rel_uri_dict = {}
 
     # add self loops (self relation)
     for i in range(num_nodes):
