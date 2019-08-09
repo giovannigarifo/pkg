@@ -258,8 +258,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
         
-        #print("batch {} / {}".format(idx, n_batch))
-        
+        #t1 = time.time()
         batch_start = idx * batch_size
         batch_end = min(num_entity, (idx + 1) * batch_size)
 
@@ -308,6 +307,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
         
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         batch_ranks = sort_and_rank(score, target)
+        batch_ranks += 1 # change to 1-indexed, because the highest rank is 0
         ranks.append(batch_ranks)
 
         # save rank_list for this batch
@@ -324,6 +324,10 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
                         "rank": triple_rank[3].item()
                     }
                 rank_list.append(rank_dict)
+
+        #t2 = time.time()
+        #print("Finished batch {} / {} in {} seconds".format(idx, n_batch, t2-t1))
+
 
     return torch.cat(ranks), score_list, rank_list # last two will be empty if URI dicts are empty
 
@@ -377,8 +381,7 @@ def evaluate(epoch,
             id_to_node_uri_dict=id_to_node_uri_dict,
             id_to_rel_uri_dict=id_to_rel_uri_dict
         )
-        ranks += 1 # change to 1-indexed, because the highest rank is 0
-        
+
         print("Saving JSONs...")
         if len(score_list) > 0:
             print("...exporting score_list, length=", len(score_list))
@@ -401,7 +404,7 @@ def evaluate(epoch,
 
         print("\n")
 
-    return mrr.item(), score_list
+    return mrr.item(), score_list, rank_list
 
 
 ######################################################
@@ -529,52 +532,44 @@ def extractTripleScore(row_idx_list):
 # Utility functions to analyze in depth the result of the testing phase
 #########################################################################
 
-def analyze_test_results(mrr_test,
-                        test_data,
-                        score_list, # list of score for each test data triplet
+def check_accuracy(mrr_test, test_data,
+                        rank_list, # list of score for each test data triplet
                         id_to_node_uri_dict: dict = {},
                         id_to_rel_uri_dict: dict = {}):
     
-    # analyze score for paper-subject-topic test triples
-    score_subject_thresholds = [
-        [0, 0.9], # number of scores equal or above 0.9
-        [0, 0.7], # number of scores between 0.7 and 0.9
-        [0, 0.5], # number of scores between 0.5 and 0.7
-        [0, 0.3], # number of scores between 0.3 and 0.5
-        [0, 0.1], # number of scores equal or below 0.1
-        [0, 0]  # number of scores below 0.1
+    # analyze scores
+    ranks_summary = [
+        [0, 1], # number of triples with rank equal to 1
+        [0, 3], # number of triples with rank between 2 and 3
+        [0, 5], # number of triples with rank between 3 and 5
+        [0, 7], # number of triples with rank between 5 and 7
+        [0, 10], # number of triples with rank between 7 and 10
+        [0, 15]  # number of triples with rank greater then 15
     ]
+
+    for score_dict in rank_list:
+        rank = score_dict.get("rank")
+        if rank == ranks_summary[0][1]:
+            ranks_summary[0][0] += 1
+        if rank > ranks_summary[0][1] and rank <= ranks_summary[1][1]:
+            ranks_summary[1][0] += 1
+        if rank > ranks_summary[1][1] and rank <= ranks_summary[2][1]:
+            ranks_summary[2][0] += 1
+        if rank > ranks_summary[2][1] and rank <= ranks_summary[3][1]:
+            ranks_summary[3][0] += 1
+        if rank > ranks_summary[3][1] and rank <= ranks_summary[4][1]:
+            ranks_summary[4][0] += 1
+        if rank > ranks_summary[4][1]:
+            ranks_summary[5][0] += 1
+
+    print("Number of ranked triples: ", len(rank_list))
+    for summary in ranks_summary:
+        print("Number of triples with rank in range with threshold {range}: {n}".format(range=summary[1], n=summary[0]))
     
-    num_test_data_topic_triples = 0
-    for triple in test_data:
-        if triple[1] != 0: # SELF RELATION  !!!
-            if "http://purl.org/dc/terms/subject" in id_to_rel_uri_dict.get(triple[1].item()):
-                num_test_data_topic_triples+=1
+    accuracy = (ranks_summary[0][0]/len(rank_list))*100
+    print("Accuracy (percentage of triples with rank equal to 1) over test data: {a}%".format(a=accuracy))
 
-    num_score_list_topic_triples = 0
-    for score_dict in score_list:
-        if "http://purl.org/dc/terms/subject" in str(score_dict.get("r_uri")):
-            num_score_list_topic_triples += 1
-            score = score_dict.get("score")
-            if score >= score_subject_thresholds[0][1]:
-                score_subject_thresholds[0][0] += 1 
-            if score < score_subject_thresholds[0][1] and score >= score_subject_thresholds[1][1]:
-                score_subject_thresholds[1][0] += 1 
-            if score < score_subject_thresholds[1][1] and score >= score_subject_thresholds[2][1]:
-                score_subject_thresholds[2][0] += 1 
-            if score < score_subject_thresholds[2][1] and score >= score_subject_thresholds[3][1]:
-                score_subject_thresholds[3][0] += 1 
-            if score < score_subject_thresholds[3][1] and score >= score_subject_thresholds[4][1]:
-                score_subject_thresholds[4][0] += 1
-            if score < score_subject_thresholds[4][1]:
-                score_subject_thresholds[5][0] += 1 
-
-    print("Length of whole score_list: ", len(score_list))
-    print("Number of test triples of kind paper-subject-topic: ", num_test_data_topic_triples)
-    print("Number of dict in score_list for triples of kind paper-subject-topic: ", num_score_list_topic_triples)
-    for summary in score_subject_thresholds:
-        print("Number of triples with score in range with lower threshold {range}: {n}".format(range=summary[1], n=summary[0]))
-            
+    
 
 def plot_loss_to_file(loss_list):
     loss_values = np.array(loss_list).T 

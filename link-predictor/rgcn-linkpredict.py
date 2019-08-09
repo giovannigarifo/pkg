@@ -315,14 +315,14 @@ def main(args):
                 model.cpu() # perform validation on CPU because full graph is too large
 
             model.eval() # set evaluation mode explicitly
-            mrr, _ = utils.evaluate(epoch,
+            mrr, _, _ = utils.evaluate(epoch,
                                 test_graph,
                                 model,
                                 valid_data,
                                 num_nodes,
                                 hits=[1, 3, 10],
                                 eval_bz=args.eval_batch_size,
-                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
+                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # remove to not save ranks
                                 id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
             
             # save best model
@@ -335,7 +335,6 @@ def main(args):
                            model_state_file)
             if use_cuda:
                 model.cuda() # activate again GPU
-
 
     print("**************")
     print("Training done!")
@@ -352,13 +351,14 @@ def main(args):
     model.load_state_dict(checkpoint['state_dict'])
     print("Using best epoch on test data: {}".format(checkpoint['epoch']))
 
-    mrr_test, score_list = utils.evaluate("best_on_test_data", test_graph, model, test_data, num_nodes, hits=[1, 3, 10],
+    mrr_test, score_list, rank_list = utils.evaluate("best_on_test_data", test_graph, model, test_data, num_nodes,
+                    hits=[1, 3, 10],
                     eval_bz=args.eval_batch_size, 
                     id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # export scores
                     id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
 
     # retrieve score for triplets paper-subject-topic
-    utils.analyze_test_results(mrr_test, test_data, score_list,
+    utils.check_accuracy(mrr_test, test_data, rank_list,
         id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
         id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
 
