@@ -22,13 +22,13 @@ import matplotlib.pyplot as plt
 #######################################################################
 
 def get_adj_and_degrees(num_nodes, triplets):
-    """ 
+    """
     Get adjacency list of the graph and degrees of nodes.
 
     For each node, the adjacency list saves [triplet_number, neighbour_node_id]
     """
     adj_list = [[] for _ in range(num_nodes)] # list of lists, number of lists = num_nodes
-    
+
     # "i" is the triplet_number, used during edge neighbourhood sampling to retireve the selected triplet
     for i,triplet in enumerate(triplets):
         adj_list[triplet[0]].append([i, triplet[2]])
@@ -39,9 +39,9 @@ def get_adj_and_degrees(num_nodes, triplets):
     return adj_list, degrees
 
 def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
-    """ 
+    """
     Edge neighborhood sampling to reduce training graph size
-    
+
     Parameters
         adj_list: list of lists, indexed by node id, it allow to retrieve all the nodes connected (in/out) to each node
         degrees: numpy array, indexed by node id, contains the number of nodes connected to each node
@@ -92,7 +92,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
                                       negative_rate):
     """
     First perform edge neighborhood sampling to obtain a training graph
-    composed by a number of "sample_size" edges, then perform negative sampling to 
+    composed by a number of "sample_size" edges, then perform negative sampling to
     generate negative samples.
 
     Parameters:
@@ -103,7 +103,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
         negative_rate: args.negative_sample, number of negative samples for each positive one
     """
     print("Sampling train graph for this epoch...")
-    
+
     # perform edge neighbor sampling
     edges = sample_edge_neighborhood(adj_list, degrees, len(triplets), sample_size)
 
@@ -135,7 +135,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
 
 def comp_deg_norm(g):
     in_deg = g.in_degrees(range(g.number_of_nodes())).float().numpy()
-    norm = 1.0 / in_deg 
+    norm = 1.0 / in_deg
     norm[np.isinf(norm)] = 0
     return norm
 
@@ -173,17 +173,17 @@ def negative_sampling(pos_samples, num_entity, negative_rate):
     # just tile up pos_samples for a negative_rate number of times to obtain
     # the array of negative samples, that will later corrupted
     neg_samples = np.tile(pos_samples, (negative_rate, 1))
-    
+
     # create labels array for both positive and negative, the positive samples
     # have all 1 as label, while the negative samples have zero
     labels = np.zeros(size_of_batch * (negative_rate + 1), dtype=np.float32)
-    labels[:size_of_batch] = 1 
+    labels[:size_of_batch] = 1
 
     values = np.random.randint(num_entity, size=num_to_generate)
     choices = np.random.uniform(size=num_to_generate)
     subj = choices > 0.5
     obj = choices <= 0.5
-    
+
     neg_samples[subj, 0] = values[subj] # corrupting the subject
     neg_samples[obj, 2] = values[obj] #corrupting the object
 
@@ -202,7 +202,7 @@ def sort_and_rank(score, target):
     score: Tensor of dimension "BATCH_SIZE x NUM_NODES", a row for each triple (a,r,b) in the batch,
             each row contains the scores for all the corrupted triples (a,r,all_nodes), among all
             the scores there will be also the score for the correct triple (a,r,b)
-    
+
     target: contains the index of the object nodes of the batch triplets (a,r,b). Contains all indicies of "b" entities.
 
     From the scores obtain the rank of the valid triplet (a,r,target)
@@ -213,18 +213,18 @@ def sort_and_rank(score, target):
     Returns a tensor of shape "BATCH_SIZE x 1", where in each row is present the rank obtained by
     a triple (a,r,b) of the current batch
     '''
-    # in indices I get the index of "every_node" for the triplets (a,r,every_nodes), sorted 
+    # in indices I get the index of "every_node" for the triplets (a,r,every_nodes), sorted
     # from the highest score to the lowest. Will also contain the index of the true object "b".
     # Here is done the actual conversion from "score" to "rank"
     _, indices = torch.sort(score, dim=1, descending=True) # indices.shape = batchsize x numNodes
-    
+
     # target is transformed to a column vector, and each value (index of true object "b") is compared to the
     # values in the columns of indices => search for the index of "o" in sorted.
     # In cmp_res there is only one "1" for each row, this is used to extract where is positioned the target value
     # so to calculate the rank for the correct triplet (a,r,target)
     cmp_res = indices == target.view(-1, 1) # cmp_res.shape = batchsize x numNodes
 
-    # get the index of the correct triplet (a,r,target) in cmp_res, **the index is the rank**, that goes from 0 to num_nodes, hopefully 
+    # get the index of the correct triplet (a,r,target) in cmp_res, **the index is the rank**, that goes from 0 to num_nodes, hopefully
     # the rank for the validation triplet should be lowest possible, ideally 0, this would mean that the valid triplet got the highest score
     indices = torch.nonzero(cmp_res)
 
@@ -236,14 +236,14 @@ def sort_and_rank(score, target):
 
 def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=100, \
     id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
-    """     
+    """
     Calculate the rank of each validation triplet (a,r,b).
 
-    Please note: 
+    Please note:
         1. rank and score are not the same, the rank is obtained from the score
         2. The triplets contains both direct and inverse relation (done in `rdftodata.buildDataFromGraph()`)
         3. num_entity is equal to num_nodes (total)
-    
+
     1. perform distmult over (a,r,every_node_of_graph), equal to apply a perturbation to the object
        of the triplets. This means that it will also calculate the distmult for the correct triplet, (a,r,b).
     2. sort the obtained distmult scores, and get the rank of the true triplets (a,r,b).
@@ -257,7 +257,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
 
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
-        
+
         #t1 = time.time()
         batch_start = idx * batch_size
         batch_end = min(num_entity, (idx + 1) * batch_size)
@@ -266,21 +266,21 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
         batch_a = a[batch_start: batch_end]
 
         # get indexes of the relations for the validation triples of this batch
-        batch_r = r[batch_start: batch_end] 
+        batch_r = r[batch_start: batch_end]
 
         # Do element-wise Hadamard product, **NOT** matrix mult, between the embeddings of the subject nodes
         # and w_rel of the relations for the validation triples of this batch.
         #
         # it's the first product of distmult: subject_embedding * w_relation
         emb_ar = embedding[batch_a] * w[batch_r]
-        
+
         # transpose: swap dim=0 and dim=1 => each **column** contains e*w_rel
         # unsqueeze: add a dimension of size 1 at position 2
         emb_ar = emb_ar.transpose(0, 1).unsqueeze(2) # size: D x E x 1 <=> EMBEDDING_SIZE x BATCH_SIZE x 1
-       
+
         # get in emb_c the embeddings of ALL nodes in the test set
         emb_c = embedding.transpose(0, 1).unsqueeze(1) # size: D x 1 x V <=> EMBEDDING_SIZE x 1 x NUM_NODES
-        
+
         # out-prod and reduce sum
         #
         # perform product between (s*w_rel) and the embeddings of **all nodes**
@@ -292,19 +292,19 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
         #
         # such score are the score of the triples (batch_subject, batch_relations, ALL_NODES)
         score = torch.sum(out_prod, dim=0) # size E x V <=> BATCH_SIZE x NUM_NODES
-        
+
         # cap the score between 0 and 1
         score = torch.sigmoid(score)
 
         # get the indices of the objects of the validation triples for this batch
         target = b[batch_start: batch_end]
-        
+
         # export scores for this batch (if requested)
         # if id_to_node_uri_dict and id_to_rel_uri_dict: # false if empty
         #     score_list.extend(export_triples_score(\
         #         batch_a, batch_r, target, embedding, w, score, multithread=False,
         #         id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict))
-        
+
         # obtain the rank (as defined in the top comment) of each validation triplet (a,r,b).
         batch_ranks = sort_and_rank(score, target)
         batch_ranks += 1 # change to 1-indexed, because the highest rank is 0
@@ -327,7 +327,6 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
 
         #t2 = time.time()
         #print("Finished batch {} / {} in {} seconds".format(idx, n_batch, t2-t1))
-
 
     return torch.cat(ranks), score_list, rank_list # last two will be empty if URI dicts are empty
 
@@ -357,7 +356,7 @@ def evaluate(epoch,
 
     1. embeddings and w_rel for the model are calculated for ALL triplets (full graph)
     2. ranks are calculated for each "test_triplets" triplet, the rank is the position where the correct triplet
-       is found when sorting ALL the possible triplets (obtained by keeping "s,p" fo the "test_triplets" triplet 
+       is found when sorting ALL the possible triplets (obtained by keeping "s,p" fo the "test_triplets" triplet
        and put as "o" every possible node) by score (calculated using distmult)
     3. calcualte MRR for this batch, a measure that gives us an insight on how in average the model
        is able to rank (=lowest position, 1== highest rank) a correct triplet
@@ -367,7 +366,7 @@ def evaluate(epoch,
         # get the embeddings and the w_relation parameters (without grad update)
         # for the model under evaluation
         embedding, w = model.evaluate(test_graph)
-        
+
         # get s,r,o from test_triplets data
         s = test_triplets[:, 0]
         r = test_triplets[:, 1]
@@ -420,7 +419,7 @@ def save_list_as_json(list_to_print, file_name, epoch):
 
 
 def create_list_from_batch(batch, embedding):
-    """ 
+    """
     Create list of dictionaries including the id of the node (or the relation)
     and its embedding value
     """
@@ -436,9 +435,9 @@ batch_s_list = []
 batch_r_list = []
 batch_o_list = []
 
-def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False, 
+def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False,
                         id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
-    """ 
+    """
     Export score associated to each triple included in the validation dataset.
     This function is called for each evaluation batch.
     Exported scores could be useful for a deep analysis of the evaluation results
@@ -462,7 +461,7 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False,
     batch_r_list = create_list_from_batch(r, emb_rels)
     batch_o_list = create_list_from_batch(o, emb_nodes)
     #t1 = time.time()
-    
+
     if multithread is False:
         for row_index, row in enumerate(score):
             for col_index, col in enumerate(row):
@@ -483,7 +482,7 @@ def export_triples_score(s, r, o, emb_nodes, emb_rels, score, multithread=False,
                         "score": score_value.item()
                     }
                     score_list.append(score_dict)
-               
+
     else:
         row_idx_list = [(row_index, row) for row_index, row in enumerate(score)]
         thread_pool = ThreadPool()
@@ -524,7 +523,7 @@ def extractTripleScore(row_idx_list):
                         "score": score_value.item()
                     }
                 local_store_list.append(score_dict)
-    
+
     score_list.append(local_store_list)
 
 
@@ -536,7 +535,7 @@ def check_accuracy(mrr_test, test_data,
                         rank_list, # list of score for each test data triplet
                         id_to_node_uri_dict: dict = {},
                         id_to_rel_uri_dict: dict = {}):
-    
+
     # analyze scores
     ranks_summary = [
         [0, 1], # number of triples with rank equal to 1
@@ -565,23 +564,19 @@ def check_accuracy(mrr_test, test_data,
     print("Number of ranked triples: ", len(rank_list))
     for summary in ranks_summary:
         print("Number of triples with rank in range with threshold {range}: {n}".format(range=summary[1], n=summary[0]))
-    
+
     accuracy = (ranks_summary[0][0]/len(rank_list))*100
     print("Accuracy (percentage of triples with rank equal to 1) over test data: {a}%".format(a=accuracy))
 
-    
+
 
 def plot_loss_to_file(loss_list):
-    loss_values = np.array(loss_list).T 
+    loss_values = np.array(loss_list).T
     epochs_values = np.arange(len(loss_list))
-   
+
     plt.plot(epochs_values, loss_values, label="Loss")
     plt.xticks(epochs_values)
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.title("Loss behavior over epochs")
     plt.savefig('output/loss_over_epochs.png')
-
-
-
-

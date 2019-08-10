@@ -73,13 +73,13 @@ class LinkPredict(nn.Module):
         # build the entity encoder (with out_dim=h_dim)
         self.rgcn = RGCN(in_dim, h_dim, h_dim, num_rels * 2, num_bases,
                          num_hidden_layers, dropout, use_cuda)
-        
+
         # regularization parameter
         self.reg_param = reg_param
-        
+
         # build relations weights
         self.w_relation = nn.Parameter(torch.Tensor(num_rels, h_dim))
-        
+
         # initialize relations weights
         nn.init.xavier_uniform_(self.w_relation,
                                 gain=nn.init.calculate_gain('relu'))
@@ -101,7 +101,7 @@ class LinkPredict(nn.Module):
         return self.rgcn.forward(g)
 
     def evaluate(self, g):
-        ''' 
+        '''
         get embedding and relation weights
         '''
         embedding = self.forward(g)
@@ -119,11 +119,11 @@ class LinkPredict(nn.Module):
         each row in the triplets is a 3-tuple of (source, relation, destination)
 
         The loss function compares the obtained score with the labels: the labels
-        are equal to 1 for positive samples and to 0 for the negative ones. 
+        are equal to 1 for positive samples and to 0 for the negative ones.
 
-        The model (the parameters w_relation) will be adjusted to **score** a negative 
+        The model (the parameters w_relation) will be adjusted to **score** a negative
         sample near 0 and a positive sample near 1.
-        '''        
+        '''
         embedding = self.forward(g) # calc embedding from RGCN encoder
         print("- embedding: embedding.shape=", embedding.shape, " embedding.type=", type(embedding))
 
@@ -133,7 +133,7 @@ class LinkPredict(nn.Module):
         print("- labels: labels.shape=", labels.shape, " labels.type=", type(labels))
         predict_loss = F.binary_cross_entropy_with_logits(score, labels)
         reg_loss = self.regularization_loss(embedding)
-        
+
         return predict_loss + self.reg_param * reg_loss # regularization to avoid overfitting
 
 
@@ -145,9 +145,9 @@ def main(args):
     # load data required for the prediction task
     if(args.rdf_dataset_path):
         publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction")
-    else: 
+    else:
         publications_data = rdftodata.rdfToData(job="link-prediction")
-    
+
     num_nodes = publications_data.num_nodes
     train_data = publications_data.train_triples # triples used for training
     valid_data = publications_data.valid_triples # triples used for validation
@@ -163,12 +163,12 @@ def main(args):
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
     if use_cuda:
         torch.cuda.set_device(args.gpu)
-        logging.debug("CUDA activated for GPU {}".format(args.gpu))
-    else: logging.debug("CUDA not available.")
+        logger.debug("CUDA activated for GPU {}".format(args.gpu))
+    else: logger.debug("CUDA not available.")
 
     # set CPU threads to be used
     torch.set_num_threads(args.num_threads)
-    logging.debug("CPU threads that will be used: {t}".format(t=torch.get_num_threads()))
+    logger.debug("CPU threads that will be used: {t}".format(t=torch.get_num_threads()))
 
     # create model
     model = LinkPredict(num_nodes,
@@ -191,7 +191,7 @@ def main(args):
     print("----------------------------------------\n")
 
     # build test (full) graph: used for validation.
-    # 
+    #
     # Starting from train_data, build a DGL graph, add inverse relations.
     # returns the DGL graph, an ndarray where indexes are edges ID and values are relation type
     test_graph, test_rel, test_norm = utils.build_test_graph(
@@ -215,7 +215,7 @@ def main(args):
     print("\n---------------------")
     print("- DGL graph created -\n")
     print("test_graph: number_of_nodes=",test_graph.number_of_nodes(), \
-          "number_of_edges=", test_graph.number_of_edges())    
+          "number_of_edges=", test_graph.number_of_edges())
     print("test_node_id: shape=", test_node_id.shape," type=", type(test_node_id))
     print("test_rel: shape=", test_rel.shape," type=", type(test_rel))
     print("test_norm: shape=", test_norm.shape," type=", type(test_norm))
@@ -246,7 +246,7 @@ def main(args):
     while True:
         model.train() # set training mode explicitly
         epoch += 1
-        
+
         print("-----------")
         print("Epoch #{n}".format(n=epoch))
         print("-----------")
@@ -263,19 +263,19 @@ def main(args):
             .generate_sampled_graph_and_labels(
                 train_data, args.graph_batch_size, args.graph_split_size,
                 num_rels, adj_list, degrees, args.negative_sample)
-        
+
         # to tensors
-        node_id = torch.from_numpy(node_id).view(-1, 1) 
+        node_id = torch.from_numpy(node_id).view(-1, 1)
         edge_type = torch.from_numpy(edge_type)
         node_norm = torch.from_numpy(node_norm).view(-1, 1)
-        data, labels = torch.from_numpy(data), torch.from_numpy(labels) 
+        data, labels = torch.from_numpy(data), torch.from_numpy(labels)
         deg = sampled_graph.in_degrees(range(sampled_graph.number_of_nodes())).float().view(-1, 1)
-        
+
         if use_cuda: # set cuda tensors if available
             node_id, deg = node_id.cuda(), deg.cuda()
             edge_type, node_norm = edge_type.cuda(), node_norm.cuda()
             data, labels = data.cuda(), labels.cuda()
-        
+
         # set norm for each node and set relation type for each edge of the training graph
         sampled_graph.ndata.update({'id': node_id, 'norm': node_norm})
         sampled_graph.edata['type'] = edge_type
@@ -305,12 +305,12 @@ def main(args):
         loss_list.append(loss.item())
 
         optimizer.zero_grad() # zeroes the gradients for next training iteration
-        
+
         # validation: evaluate over the test graph
         if epoch % args.evaluate_every == 0:
 
             print("/#/ Perform validation...".format(e=epoch))
-           
+
             if use_cuda:
                 model.cpu() # perform validation on CPU because full graph is too large
 
@@ -324,7 +324,7 @@ def main(args):
                                 eval_bz=args.eval_batch_size,
                                 id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # remove to not save ranks
                                 id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
-            
+
             # save best model
             if mrr < best_mrr:
                 if epoch >= args.n_epochs:
@@ -353,7 +353,7 @@ def main(args):
 
     mrr_test, score_list, rank_list = utils.evaluate("best_on_test_data", test_graph, model, test_data, num_nodes,
                     hits=[1, 3, 10],
-                    eval_bz=args.eval_batch_size, 
+                    eval_bz=args.eval_batch_size,
                     id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # export scores
                     id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
 
@@ -371,8 +371,14 @@ def main(args):
 
 
 if __name__ == '__main__':
+
+    # setup logging
+    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(name)s - %(levelname)s] %(message)s')
+    logger = logging.getLogger('rgcn_logger')
+
+    # parse arguments
     parser = argparse.ArgumentParser(description='RGCN')
-    
+
     parser.add_argument("--rdf-dataset-path", type=str, help="path to RDF dataset to use")
     parser.add_argument("--gpu", type=int, default=-1, help="gpu")
     parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
@@ -393,6 +399,9 @@ if __name__ == '__main__':
     parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
 
     args = parser.parse_args()
-    print(args)
-    main(args)
 
+    logger.debug("Arguments:")
+    for arg in vars(args):
+        logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
+
+    main(args)
