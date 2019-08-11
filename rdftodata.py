@@ -57,7 +57,7 @@ class PublicationsDataset:
         self.valid_triples = list()
         self.test_triples = list()
 
-    def initTrainValidTestTriples(self, train_perc: float=0.7, valid_perc: float=0.15, test_perc: float=0.15):
+    def initTrainValidTestTriples(self, train_perc: float=0.9, valid_perc: float=0.05, test_perc: float=0.05):
         '''
         Splits the triples dataset into train, test and validation sets. The split
         is based on the relation, taking the given percentage for each relation type.
@@ -91,20 +91,11 @@ class PublicationsDataset:
 
             self.test_triples.extend(rel_triples[num_train+num_valid:])
 
-        # add relations between nodes and themselves for train, test, validation data,
-        # the self relations are added to all sets (if they'll be merged later, duplicates will arise!)
-        num_self_rel = 0
-        for triples_subset in (self.train_triples, self.valid_triples, self.test_triples):
-            nodes = set((triple[0] for triple in triples_subset))
-            nodes = nodes|set((triple[2] for triple in triples_subset)) #union
-            for node in nodes:
-                triples_subset.append((node, 0, node)) # append to train, test or valid
-                num_self_rel = num_self_rel + 1
-
-        assert len(triples) == (len(self.train_triples) \
-                + len(self.valid_triples) \
-                + len(self.test_triples) \
-                - num_self_rel + self.num_nodes), "Wrong number of Train, Valid, Test triples" # all the self relations added
+        # add self relations only to train set
+        train_nodes = set((triple[0] for triple in self.train_triples))
+        train_nodes = train_nodes|set((triple[2] for triple in self.train_triples)) #union
+        for node in train_nodes:
+            self.train_triples.append((node, 0, node))
 
         logger.debug("...finished:")
         logger.debug(" - Number of training triples: {}".format(len(self.train_triples)))
