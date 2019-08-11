@@ -260,7 +260,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, epoch, batch_size=100, \
 
         t1 = time.time()
         batch_start = idx * batch_size
-        batch_end = min(num_entity, (idx + 1) * batch_size)
+        batch_end = min(len(a), (idx + 1) * batch_size)
 
         # get indexes of subject nodes for the validation triples of this batch
         batch_a = a[batch_start: batch_end]
@@ -278,7 +278,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, epoch, batch_size=100, \
         # unsqueeze: add a dimension of size 1 at position 2
         emb_ar = emb_ar.transpose(0, 1).unsqueeze(2) # size: D x E x 1 <=> EMBEDDING_SIZE x BATCH_SIZE x 1
 
-        # get in emb_c the embeddings of ALL nodes in the test set
+        # get in emb_c the embeddings of ALL nodes
         emb_c = embedding.transpose(0, 1).unsqueeze(1) # size: D x 1 x V <=> EMBEDDING_SIZE x 1 x NUM_NODES
 
         # out-prod and reduce sum
