@@ -234,7 +234,7 @@ def sort_and_rank(score, target):
     return ranks
 
 
-def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=100, \
+def perturb_and_get_rank(embedding, w, a, r, b, epoch, batch_size=100, \
     id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
     """
     Calculate the rank of each validation triplet (a,r,b).
@@ -250,7 +250,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
        The "Rank" is the position of the true triplet in the sorted scores for all the triplets (a,r,every_node_of_graph):
        i.e. if distmult gives the highest score for a true triplet, it will be sorted at top, and it's rank will be 0
     """
-    n_batch = (num_entity + batch_size - 1) // batch_size
+    n_batch = (len(a) + batch_size - 1) // batch_size
     ranks = []
     score_list = []
     rank_list = []
@@ -258,7 +258,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
     # for each batch, calculate validation triplet (a,r,b) rank
     for idx in range(n_batch):
 
-        #t1 = time.time()
+        t1 = time.time()
         batch_start = idx * batch_size
         batch_end = min(num_entity, (idx + 1) * batch_size)
 
@@ -325,8 +325,8 @@ def perturb_and_get_rank(embedding, w, a, r, b, num_entity, epoch, batch_size=10
                     }
                 rank_list.append(rank_dict)
 
-        #t2 = time.time()
-        #print("Finished batch {} / {} in {} seconds".format(idx, n_batch, t2-t1))
+        t2 = time.time()
+        print("Finished batch {} / {} in {} seconds ({} triples)".format(idx, n_batch, t2-t1, len(batch_a)))
 
     return torch.cat(ranks), score_list, rank_list # last two will be empty if URI dicts are empty
 
@@ -376,7 +376,7 @@ def evaluate(epoch,
 
         # get rank for the triplets (s,r,o)
         ranks, score_list, rank_list = perturb_and_get_rank(
-            embedding, w, s, r, o, num_entity, epoch, eval_bz,
+            embedding, w, s, r, o, epoch, eval_bz,
             id_to_node_uri_dict=id_to_node_uri_dict,
             id_to_rel_uri_dict=id_to_rel_uri_dict
         )
