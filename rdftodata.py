@@ -3,6 +3,7 @@ from rdflib import util, URIRef, Namespace
 import logging, sys
 from enum import Enum
 from rdflib.namespace import RDF
+import random
 
 
 PURL = Namespace("http://purl.org/dc/terms/")
@@ -231,6 +232,9 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
                 id_to_rel_uri_dict[2*rel_id - 1] = p
                 id_to_rel_uri_dict[2*rel_id] = relations_to_inverse_dict.get(p) # get corresponding inverse relation
 
+    # shuffle the edge list
+    random.shuffle(edge_list)
+
     # edges lists used by RGCN
     edges_sources = [edge[0] for edge in edge_list]
     edges_destinations = [edge[1] for edge in edge_list]
@@ -270,9 +274,10 @@ def topicSampling(g: Graph, num_topics_to_remove: int):
 
 
 
-def rdfToData(filepath: str = "serialized.xml", graphperc: float = 1.0, job: str = "classification") -> PublicationsDataset:
+def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: str = "classification",
+                train_perc: float = 0.9, valid_perc: float = 0.9, test_perc: float = 0.9) -> PublicationsDataset:
     '''
-    return a data tuple that contains all the required data sctructures
+    return a PublicationsDataset object that contains all the required data sctructures
     to build an RGCN-based model
     '''
     # setup logging
@@ -288,8 +293,8 @@ def rdfToData(filepath: str = "serialized.xml", graphperc: float = 1.0, job: str
     elif job == "link-prediction":
 
         #topicSampling(g, 2) # remove validation topics from rdflib graph
-        data = buildDataFromGraph(g, graphperc)
-        data.initTrainValidTestTriples()
+        data = buildDataFromGraph(g, graph_perc)
+        data.initTrainValidTestTriples(train_perc, valid_perc, test_perc)
         return data
 
     else:

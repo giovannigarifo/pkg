@@ -144,9 +144,15 @@ def main(args):
 
     # load data required for the prediction task
     if(args.rdf_dataset_path):
-        publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction")
+        publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction",
+                            args.train_perc,
+                            args.valid_perc,
+                            args.test_perc)
     else:
-        publications_data = rdftodata.rdfToData(job="link-prediction")
+        publications_data = rdftodata.rdfToData(args.graph_perc, "link-prediction",
+                            args.train_perc,
+                            args.valid_perc,
+                            args.test_perc)
 
     num_nodes = publications_data.num_nodes
     train_data = publications_data.train_triples # triples used for training
@@ -383,6 +389,11 @@ if __name__ == '__main__':
     parser.add_argument("--gpu", type=int, default=-1, help="gpu")
     parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
 
+    parser.add_argument("--graph-perc", type=float, default=1.0, help="percentage of the nodes to be sampled. 0.5 means get 50 percent of the nodes.")
+    parser.add_argument("--train-perc", type=float, default=0.9, help="Train split percentage for the triplets")
+    parser.add_argument("--valid-perc", type=float, default=0.05, help="Validation split percentage for the triplets")
+    parser.add_argument("--test-perc", type=float, default=0.05, help="Test split percentage for the triplets")
+
     parser.add_argument("--dropout", type=float, default=0.2, help="dropout probability")
     parser.add_argument("--n-hidden", type=int, default=500, help="number of hidden units")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
@@ -395,7 +406,6 @@ if __name__ == '__main__':
     parser.add_argument("--graph-batch-size", type=int, default=30000, help="number of edges to sample in each training epoch")
     parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of sampled edges (see graph-batch-size) used as positive sample")
     parser.add_argument("--negative-sample", type=int, default=10, help="number of negative samples per positive sample")
-    parser.add_argument("--graph-perc", type=float, default=1.0, help="percentage of the graph to be used, 1 means all graph, 0.5 means half the triples for each relation.")
     parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
 
     args = parser.parse_args()
