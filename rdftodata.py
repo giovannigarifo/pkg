@@ -4,7 +4,7 @@ import logging, sys
 from enum import Enum
 from rdflib.namespace import RDF
 import random
-
+import time
 
 PURL = Namespace("http://purl.org/dc/terms/")
 
@@ -18,6 +18,7 @@ class GeraniumOntology(Enum):
     GERANIUM_ONTOLOGY_AUT = URIRef("http://geranium-project.org/ontology/Author")
     GERANIUM_ONTOLOGY_JOU = URIRef("http://geranium-project.org/ontology/Journal")
     GERANIUM_ONTOLOGY_TMF = URIRef("http://geranium-project.org/ontology/TMFResource")
+    GERANIUM_ONTOLOGY_KEY = URIRef("http://geranium-project.org/ontology/AuthorKeyword")
 
 class GeraniumTerms(Enum):
     GERANIUM_TERM_SELF = URIRef("http://geranium-project.org/terms/self") # self relation
@@ -25,6 +26,12 @@ class GeraniumTerms(Enum):
     GERANIUM_TERM_IS_PUBLISHER = URIRef("http://geranium-project.org/terms/is_publisher") # inverse relation of PURL.publisher
     GERANIUM_TERM_IS_CREATOR = URIRef("http://geranium-project.org/terms/is_creator") # inverse relation of PURL.creator
     GERANIUM_TERM_IS_CONTRIBUTOR = URIRef("http://geranium-project.org/terms/is_contributor") # inverse relation of PURL.contributor
+
+class PURLTerms(Enum):
+    PURL_TERM_SUBJECT = PURL.subject
+    PURL_TERM_PUBLISHER = PURL.publisher
+    PURL_TERM_CREATOR = PURL.creator
+    PURL_TERM_CONTRIBUTOR = PURL.contributor
 
 class Label(Enum):
     '''
@@ -103,6 +110,49 @@ class PublicationsDataset:
         logger.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
         logger.debug(" - Number of test triples: {}".format(len(self.test_triples)))
 
+    def checkCorrectness(self, g: Graph):
+        '''
+        Test if all the triples regarding the selected nodes (see GeraniumOntology)
+        and relations (see PURLTerms) contained in the graph g were correctly selected
+        as triples for the PublicationsDataset.
+        If some triples haven't been added and were lost, the program will exit.
+        '''
+        # setup logging
+        logger = logging.getLogger('rdftodata_logger')
+        logger.debug("Checking correctness of the data scraped from the RDF graph...")
+
+        # build an RDFlib graph from the edges in PublicationsDataset
+        edges_graph = Graph()
+        num_triples_in_edge_graph = 0
+
+        triples_from_edges = set([(self.id_to_node_uri_dict.get(t[0]),
+                            self.id_to_rel_uri_dict.get(t[1]),
+                            self.id_to_node_uri_dict.get(t[2])) \
+                            for t in zip(self.edges_sources, self.edges_relations, self.edges_destinations)])
+
+        for triple in triples_from_edges:
+            if triple[1] not in [term.value for term in GeraniumTerms]: # exclude self and inverse relation
+                edges_graph.add(triple)
+                num_triples_in_edge_graph += 1
+        logger.debug("...number of triples to be checked: {}".format(num_triples_in_edge_graph))
+
+        assert ((len(triples_from_edges) - self.num_nodes)//2) == num_triples_in_edge_graph
+
+        # build graph of lost triples
+        lost_graph = Graph()
+        num_triples_in_lost_graph = 0
+        for (s,p,o) in g:
+            if (s,p,o) not in edges_graph and p in [term.value for term in PURLTerms] \
+                and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_KEY.value) in g: # exclude (auth,subj,authorkey)
+                lost_graph.add((s,p,o))
+                num_triples_in_lost_graph += 1
+
+        if num_triples_in_lost_graph > 0:
+            logger.error("...number of lost triples: {}".format(num_triples_in_lost_graph))
+            exit(0)
+
+        logger.debug("...finished.")
+
 
 def readFileInGraph(filepath: str = "../../data/serialized.xml"):
     '''
@@ -126,15 +176,13 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     logger = logging.getLogger('rdftodata_logger')
     logger.debug("Start building the data structures from the rdflib Graph...")
 
-    # 1. retrieve the set (no duplicates) of nodes for the RGCN task: only the listed entities
-    #    are interpreted as nodes for the learning task
+    # 1. retrieve the set (no duplicates) of nodes for the RGCN task, only the nodes listen in
+    #    GeraniumOntology, with the exclusion of the Authorkeyword nodes, are selected.
     nodes = set()
-    for (s,p,o) in g.triples((None, None, None)):
-        if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g or \
-            (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g or \
-            (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g or \
-            (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
-            nodes.add(s)
+    for (s,p,o) in g:
+        for geranium_ont_type in [t for t in GeraniumOntology if t != GeraniumOntology.GERANIUM_ONTOLOGY_KEY]:
+            if (s, RDF.type, geranium_ont_type.value) in g:
+                nodes.add(s)
 
     # take only some nodes based on the percentage defined by graphperc
     num_nodes = int(len(nodes) * graphperc)
@@ -153,21 +201,19 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     relations_set = set()
     relations_to_inverse_dict = {}
 
-    for (s,p,o) in g.triples((None, None, None)):
-
+    for (s,p,o) in g:
         # if it's a triple between nodes, add predicate to relation set (=> no duplicates allowed)
         if s in nodes and o in nodes:
             relations_set.add(p)
             # save mapping from relation to it's inverse one
-            if "http://purl.org/dc/terms/subject" in p:
+            if p == PURLTerms.PURL_TERM_SUBJECT.value:
                 relations_to_inverse_dict[p] = GeraniumTerms.GERANIUM_TERM_IS_SUBJECT.value
-            if "http://purl.org/dc/terms/publisher" in p:
+            if p == PURLTerms.PURL_TERM_PUBLISHER.value:
                 relations_to_inverse_dict[p] = GeraniumTerms.GERANIUM_TERM_IS_PUBLISHER.value
-            if "http://purl.org/dc/terms/creator" in p:
+            if p == PURLTerms.PURL_TERM_CREATOR.value:
                 relations_to_inverse_dict[p] = GeraniumTerms.GERANIUM_TERM_IS_CREATOR.value
-            if "http://purl.org/dc/terms/contributor" in p:
+            if p == PURLTerms.PURL_TERM_CONTRIBUTOR.value:
                 relations_to_inverse_dict[p] = GeraniumTerms.GERANIUM_TERM_IS_CONTRIBUTOR.value
-
         # save label of node in dictionary
         if s in nodes:
             if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g: # s it's a publication
@@ -179,7 +225,6 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
             elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: #s it's a TMF topic
                 labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
 
-
     logger.debug("Relations found:")
     for relation in relations_set:
         logger.debug("- {r}".format(r=relation))
@@ -188,7 +233,6 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
         logger.debug("- {ir}".format(ir=inverse_r))
 
     assert len(labels_dict) == num_nodes, "Some labels are missing!"
-
 
     # build label list, element i-th of list correspond to the label of the i-th node (this is why dictionary is sorted for key=node_index)
     labels = list()
@@ -213,9 +257,9 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
         edge_list.append((i, i, 0))
     id_to_rel_uri_dict[0] = GeraniumTerms.GERANIUM_TERM_SELF.value
 
-    for s,p,o in g.triples((None,None,None)):
+    for s,p,o in g:
         if(p in relations_dict and s in nodes and o in nodes): # s and o have to be selected nodes (depends on graphperc)
-            if p == PURL.subject and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
+            if p == PURLTerms.PURL_TERM_SUBJECT.value and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
                 pass # only TMF topics, no author keywords
             else:
                 src_id = nodes_dict.get(s)
@@ -295,6 +339,7 @@ def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: st
         #topicSampling(g, 2) # remove validation topics from rdflib graph
         data = buildDataFromGraph(g, graph_perc)
         data.initTrainValidTestTriples(train_perc, valid_perc, test_perc)
+        data.checkCorrectness(g)
         return data
 
     else:
