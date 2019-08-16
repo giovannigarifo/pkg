@@ -339,7 +339,7 @@ def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: st
         #topicSampling(g, 2) # remove validation topics from rdflib graph
         data = buildDataFromGraph(g, graph_perc)
         data.initTrainValidTestTriples(train_perc, valid_perc, test_perc)
-        data.checkCorrectness(g)
+        #data.checkCorrectness(g)
         return data
 
     else:

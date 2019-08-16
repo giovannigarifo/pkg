@@ -200,8 +200,7 @@ def main(args):
     #
     # Starting from train_data, build a DGL graph, add inverse relations.
     # returns the DGL graph, an ndarray where indexes are edges ID and values are relation type
-    test_graph, test_rel, test_norm = utils.build_test_graph(
-        num_nodes, num_rels, train_data)
+    test_graph, test_rel, test_norm = utils.build_test_graph(num_nodes, num_rels, train_data)
 
     # get in-degrees of all nodes in test_graph
     test_deg = test_graph.in_degrees(range(test_graph.number_of_nodes())) \

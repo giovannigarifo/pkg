@@ -140,25 +140,20 @@ def comp_deg_norm(g):
     return norm
 
 def build_graph_from_triplets(num_nodes, num_rels, triplets):
-    """ Create a DGL graph. The graph is bidirectional because RGCN authors
-        use reversed relations.
+    """ Create a DGL graph.
         This function also generates edge type and normalization factor
         (reciprocal of node incoming degree)
     """
-    g = dgl.DGLGraph()
-    g.add_nodes(num_nodes)
-    src, rel, dst = triplets
-
-    # add reverse relations, so for (s,r,o) add (o,inv(r),s)
-    src, dst = np.concatenate((src, dst)), np.concatenate((dst, src))
-    rel = np.concatenate((rel, rel + num_rels)) # inverse relations, just add to rel num_rels (inv of "rel 0" is "rel num_rels")
+    src, rel, dst = triplets # already contains inverse relation
     edges = sorted(zip(dst, src, rel))
     dst, src, rel = np.array(edges).transpose()
 
+    g = dgl.DGLGraph()
+    g.add_nodes(num_nodes)
     g.add_edges(src, dst)
 
     norm = comp_deg_norm(g)
-    print("...DGL Graph built from triples. number of nodes: {}, number of edges: {}".format(num_nodes, len(src)))
+    print("...DGL Graph built from triplets. number of nodes: {}, number of edges: {}".format(num_nodes, len(src)))
     return g, rel, norm
 
 def build_test_graph(num_nodes, num_rels, edges):
