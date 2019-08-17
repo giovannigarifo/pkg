@@ -196,16 +196,11 @@ def main(args):
     print("test_data: shape=", test_data.shape, "type=", type(test_data))
     print("----------------------------------------\n")
 
-    # build test (full) graph: used for validation.
+    # build test_graph (all train_data) used for validation.
     #
-    # Starting from train_data, build a DGL graph, add inverse relations.
+    # Starting from train_data, build a DGL graph.
     # returns the DGL graph, an ndarray where indexes are edges ID and values are relation type
     test_graph, test_rel, test_norm = utils.build_test_graph(num_nodes, num_rels, train_data)
-
-    # get in-degrees of all nodes in test_graph
-    test_deg = test_graph.in_degrees(range(test_graph.number_of_nodes())) \
-                .float() \
-                .view(-1,1)
 
     test_node_id = torch.arange(0, num_nodes, dtype=torch.long).view(-1, 1)
     test_rel = torch.from_numpy(test_rel)
@@ -214,24 +209,22 @@ def main(args):
     test_graph.ndata.update({'id': test_node_id, 'norm': test_norm}) # add test_norm for each node
     test_graph.edata['type'] = test_rel # add relation type for each edge
 
-    # at this point the DGL graph contains all nodes, all edges, and all edges have the associated relation type
+    # build adj list and calculate degrees for sampling
+    adj_list, degrees = utils.get_adj_and_degrees(num_nodes, train_data)
 
-    # debug prints
     print("\n---------------------")
     print("- DGL graph created -\n")
-    print("test_graph: number_of_nodes=",test_graph.number_of_nodes(), \
-          "number_of_edges=", test_graph.number_of_edges())
-    print("test_node_id: shape=", test_node_id.shape," type=", type(test_node_id))
-    print("test_rel: shape=", test_rel.shape," type=", type(test_rel))
-    print("test_norm: shape=", test_norm.shape," type=", type(test_norm))
+    print("test_graph:\t number_of_nodes=",test_graph.number_of_nodes(), "number_of_edges=", test_graph.number_of_edges())
+    print("test_node_id:\t shape=", test_node_id.shape," type=", type(test_node_id))
+    print("test_rel:\t shape=", test_rel.shape," type=", type(test_rel))
+    print("test_norm:\t shape=", test_norm.shape," type=", type(test_norm))
+    print("adj_list:\t length={l}, type={t}".format(l=len(adj_list), t=type(adj_list)))
+    print("degrees:\t shape={s}, type={t}".format(s=degrees.shape, t=type(degrees)))
     print("---------------------\n")
 
     # set cuda
     if use_cuda:
         model.cuda()
-
-    # build adj list and calculate degrees for sampling
-    adj_list, degrees = utils.get_adj_and_degrees(num_nodes, train_data)
 
     # optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -239,14 +232,13 @@ def main(args):
     model_state_file = 'model_state.pth'
     forward_time = []
     backward_time = []
+    loss_over_epochs = []
+    epoch = 0
+    best_mrr = 0
 
     print("*************************")
     print("Starting training loop...")
     print("*************************\n\n")
-
-    epoch = 0
-    best_mrr = 0
-    loss_list = []
 
     while True:
         model.train() # set training mode explicitly
@@ -264,8 +256,8 @@ def main(args):
         # Also add negative samples.
         #`data` will contain the triplets (both positive and negatives), and `labels`
         # will contain the corresponding labels (1 for positive samples, 0 for negative samples)
-        sampled_graph, node_id, edge_type, node_norm, data, labels = utils\
-            .generate_sampled_graph_and_labels(
+        sampled_graph, node_id, edge_type, node_norm, data, labels = \
+            utils.generate_sampled_graph_and_labels(
                 train_data, args.graph_batch_size, args.graph_split_size,
                 num_rels, adj_list, degrees, args.negative_sample)
 
@@ -307,7 +299,7 @@ def main(args):
               format(epoch, loss.item(), best_mrr, forward_time[-1], backward_time[-1]))
 
         # save loss behavior
-        loss_list.append(loss.item())
+        loss_over_epochs.append(loss.item())
 
         optimizer.zero_grad() # zeroes the gradients for next training iteration
 
@@ -369,9 +361,9 @@ def main(args):
 
     # print loss_list for debug
     print("\nLoss values for each training epoch:")
-    for index, l in enumerate(loss_list):
+    for index, l in enumerate(loss_over_epochs):
         print("Epoch {e} loss: {l}".format(e=index, l=l))
-    utils.plot_loss_to_file(loss_list)
+    utils.plot_loss_to_file(loss_over_epochs)
 
 
 

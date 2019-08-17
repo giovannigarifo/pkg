@@ -30,9 +30,10 @@ def get_adj_and_degrees(num_nodes, triplets):
     adj_list = [[] for _ in range(num_nodes)] # list of lists, number of lists = num_nodes
 
     # "i" is the triplet_number, used during edge neighbourhood sampling to retireve the selected triplet
+    # triplets already contains inverse relations and self relations
     for i,triplet in enumerate(triplets):
-        adj_list[triplet[0]].append([i, triplet[2]])
-        adj_list[triplet[2]].append([i, triplet[0]])
+        if triplet[1] != 0: # self relation doesn't count as adjacent node
+            adj_list[triplet[0]].append([i, triplet[2]])
 
     degrees = np.array([len(a) for a in adj_list])
     adj_list = [np.array(a) for a in adj_list]
@@ -47,28 +48,40 @@ def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
         degrees: numpy array, indexed by node id, contains the number of nodes connected to each node
         n_triplets: number of tripltes in the training graph
         sample_size: args.graph_batch_size
-    """
 
-    edges = np.zeros((sample_size), dtype=np.int32)
+    Returns
+        edges: np array that contains the index of the sampled edges, index will be used to retrieve the triple
+    """
+    print("...sampling {} edges...".format(sample_size))
+    num_nodes = len(adj_list) # number of nodes in the graph from which to sample the edges
 
     #initialize
+    edges = np.zeros((sample_size), dtype=np.int32) # number (index) of the sampled edges
     sample_counts = np.array([d for d in degrees])
     picked = np.array([False for _ in range(n_triplets)])
     seen = np.array([False for _ in degrees])
+    assert num_nodes == degrees.shape[0] == sample_counts.shape[0] == seen.shape[0]
 
     for i in range(0, sample_size):
-        weights = sample_counts * seen
 
+        weights = sample_counts * seen
         if np.sum(weights) == 0:
             weights = np.ones_like(weights)
             weights[np.where(sample_counts == 0)] = 0
 
+        # TODO: temporary fix to avoid negative probabilities
+        for idx, w in enumerate(weights):
+            if w < 0:
+                weights[idx] = 0
+
         probabilities = (weights) / np.sum(weights)
-        chosen_vertex = np.random.choice(np.arange(degrees.shape[0]),
-                                         p=probabilities)
+
+        # randomly choose a vertex of the training graph
+        chosen_vertex = np.random.choice(np.arange(num_nodes), p=probabilities)
         chosen_adj_list = adj_list[chosen_vertex]
         seen[chosen_vertex] = True
 
+        # randomly choose an edge of the choosen vertex
         chosen_edge = np.random.choice(np.arange(chosen_adj_list.shape[0]))
         chosen_edge = chosen_adj_list[chosen_edge]
         edge_number = chosen_edge[0]
@@ -104,19 +117,18 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size,
     """
     print("Sampling train graph for this epoch...")
 
-    # perform edge neighbor sampling
+    # perform edge neighbor sampling, returns indexes of sampled edges
     edges = sample_edge_neighborhood(adj_list, degrees, len(triplets), sample_size)
 
     # relabel nodes to have consecutive node ids
-    edges = triplets[edges]
+    edges = triplets[edges] # filter the sampled edges
     src, rel, dst = edges.transpose()
     uniq_v, edges = np.unique((src, dst), return_inverse=True)
     src, dst = np.reshape(edges, (2, -1))
     relabeled_edges = np.stack((src, rel, dst)).transpose()
 
     # negative sampling
-    samples, labels = negative_sampling(relabeled_edges, len(uniq_v),
-                                        negative_rate)
+    samples, labels = negative_sampling(relabeled_edges, len(uniq_v), negative_rate)
 
     # further split graph, only half of the edges will be used as graph
     # structure, while the rest half are used as unseen positive samples
@@ -140,9 +152,9 @@ def comp_deg_norm(g):
     return norm
 
 def build_graph_from_triplets(num_nodes, num_rels, triplets):
-    """ Create a DGL graph.
-        This function also generates edge type and normalization factor
-        (reciprocal of node incoming degree)
+    """
+    Create a DGL graph.
+    This function also generates edge type and normalization factor (reciprocal of node incoming degree)
     """
     src, rel, dst = triplets # already contains inverse relation
     edges = sorted(zip(dst, src, rel))
