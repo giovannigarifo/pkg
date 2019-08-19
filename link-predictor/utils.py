@@ -30,10 +30,9 @@ def get_adj_and_degrees(num_nodes, triplets):
     adj_list = [[] for _ in range(num_nodes)] # list of lists, number of lists = num_nodes
 
     # "i" is the triplet_number, used during edge neighbourhood sampling to retireve the selected triplet
-    # triplets already contains inverse relations and self relations
     for i,triplet in enumerate(triplets):
-        if triplet[1] != 0: # self relation doesn't count as adjacent node
-            adj_list[triplet[0]].append([i, triplet[2]])
+        adj_list[triplet[0]].append([i, triplet[2]])
+        adj_list[triplet[2]].append([i, triplet[0]])
 
     degrees = np.array([len(a) for a in adj_list])
     adj_list = [np.array(a) for a in adj_list]
@@ -68,12 +67,6 @@ def sample_edge_neighborhood(adj_list, degrees, n_triplets, sample_size):
         if np.sum(weights) == 0:
             weights = np.ones_like(weights)
             weights[np.where(sample_counts == 0)] = 0
-
-        # TODO: temporary fix to avoid negative probabilities
-        for idx, w in enumerate(weights):
-            if w < 0:
-                weights[idx] = 0
-
         probabilities = (weights) / np.sum(weights)
 
         # randomly choose a vertex of the training graph
@@ -156,15 +149,21 @@ def build_graph_from_triplets(num_nodes, num_rels, triplets):
     Create a DGL graph.
     This function also generates edge type and normalization factor (reciprocal of node incoming degree)
     """
-    src, rel, dst = triplets # already contains inverse relation
-    edges = sorted(zip(dst, src, rel))
-    dst, src, rel = np.array(edges).transpose()
-
     g = dgl.DGLGraph()
     g.add_nodes(num_nodes)
+    src, rel, dst = triplets
+
+    # add reverse relations, so for (s,r,o) add (o,inv(r),s)
+    src, dst = np.concatenate((src, dst)), np.concatenate((dst, src))
+    rel = np.concatenate((rel, rel + num_rels)) # inverse relations, just add to rel num_rels (inv of "rel 0" is "rel num_rels")
+
+    # Create the edges array
+    edges = sorted(zip(dst, src, rel))
+    dst, src, rel = np.array(edges).transpose() # 3 x Num of nodes
     g.add_edges(src, dst)
 
     norm = comp_deg_norm(g)
+
     print("...DGL Graph built from triplets. number of nodes: {}, number of edges: {}".format(num_nodes, len(src)))
     return g, rel, norm
 
@@ -379,14 +378,25 @@ def evaluate(epoch,
         r = test_triplets[:, 1]
         o = test_triplets[:, 2]
 
-        print("Computing ranks for {n} triplets...".format(n=len(test_triplets)))
+        print("Computing ranks...")
 
-        # get rank for the triplets (s,r,o)
-        ranks, score_list, rank_list = perturb_and_get_rank(
-            embedding, w, s, r, o, epoch, eval_bz,
-            id_to_node_uri_dict=id_to_node_uri_dict,
-            id_to_rel_uri_dict=id_to_rel_uri_dict
+        # get ranks for the inverse of the validation triplet (o,r,s)
+        ranks_s, score_list, rank_list = perturb_and_get_rank(
+            embedding, w, o, r, s, epoch, eval_bz,
+            id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict
         )
+        print("...half way...")
+
+        # get rank for the validation triplets (s,r,o)
+        ranks_o, score_list_o, rank_list_o = perturb_and_get_rank(
+            embedding, w, s, r, o, epoch, eval_bz,
+            id_to_node_uri_dict=id_to_node_uri_dict, id_to_rel_uri_dict=id_to_rel_uri_dict
+        )
+        print("...done.")
+
+        score_list.extend(score_list_o)
+        rank_list.extend(rank_list_o)
+        ranks = torch.cat([ranks_s, ranks_o])
 
         print("Saving JSONs...")
         if len(score_list) > 0:

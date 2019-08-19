@@ -86,8 +86,8 @@ class PublicationsDataset:
         # # calc relation ratio: how much triples for each relation
         # dict_rel_num_triples = {rel_index: (len(dict_rel_triples.get(rel_index))/len(triples))*100 for rel_index in range(self.num_relations)}
 
-        # for each relation (also inverse ones), excluded the self relation, split triples in training/valid/test sets.
-        for rel in range(1, self.num_relations):
+        # for each relation split triples in training/valid/test sets.
+        for rel in range(0, self.num_relations):
             rel_triples = dict_rel_triples.get(rel) # all triples for this relation
             num_triples = len(rel_triples)
 
@@ -99,16 +99,11 @@ class PublicationsDataset:
 
             self.test_triples.extend(rel_triples[num_train+num_valid:])
 
-        # add self relations only to train set
-        train_nodes = set((triple[0] for triple in self.train_triples))
-        train_nodes = train_nodes|set((triple[2] for triple in self.train_triples)) #union
-        for node in train_nodes:
-            self.train_triples.append((node, 0, node))
-
         logger.debug("...finished:")
         logger.debug(" - Number of training triples: {}".format(len(self.train_triples)))
         logger.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
         logger.debug(" - Number of test triples: {}".format(len(self.test_triples)))
+        assert len(self.train_triples) + len(self.test_triples) + len(self.valid_triples) == len(triples)
 
     def checkCorrectness(self, g: Graph):
         '''
@@ -131,12 +126,11 @@ class PublicationsDataset:
                             for t in zip(self.edges_sources, self.edges_relations, self.edges_destinations)])
 
         for triple in triples_from_edges:
-            if triple[1] not in [term.value for term in GeraniumTerms]: # exclude self and inverse relation
-                edges_graph.add(triple)
-                num_triples_in_edge_graph += 1
+            edges_graph.add(triple)
+            num_triples_in_edge_graph += 1
         logger.debug("...number of triples to be checked: {}".format(num_triples_in_edge_graph))
 
-        assert ((len(triples_from_edges) - self.num_nodes)//2) == num_triples_in_edge_graph
+        assert len(triples_from_edges) == num_triples_in_edge_graph
 
         # build graph of lost triples
         lost_graph = Graph()
@@ -151,7 +145,7 @@ class PublicationsDataset:
             logger.error("...number of lost triples: {}".format(num_triples_in_lost_graph))
             exit(0)
 
-        logger.debug("...finished.")
+        logger.debug("...finished, data ok.")
 
 
 def readFileInGraph(filepath: str = "../../data/serialized.xml"):
@@ -228,7 +222,7 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     logger.debug("Relations found:")
     for relation in relations_set:
         logger.debug("- {r}".format(r=relation))
-    logger.debug("Inverse relations added:")
+    logger.debug("Inverse relations are (they're not added!):")
     for relation, inverse_r in relations_to_inverse_dict.items():
         logger.debug("- {ir}".format(ir=inverse_r))
 
@@ -239,8 +233,8 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     for index, (node,label) in enumerate(sorted(labels_dict.items())):
         labels.append(label)
 
-    relations_dict = {relation: index+1 for (index, relation) in enumerate(relations_set)} #+1 because of self relation that has 0 as index
-    num_relations = len(relations_dict.keys())*2+1 # relations are in both ways, +1 for self relation
+    relations_dict = {relation: index for (index, relation) in enumerate(relations_set)}
+    num_relations = len(relations_dict.keys())
 
     # 2. build edge list (preserve order) with tuples (src_id, dst_id, rel_id)
     #   the predicates that will be used as relations are:
@@ -252,11 +246,6 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     id_to_node_uri_dict = {} # used to retrieve URIs from IDs later during evaluation
     id_to_rel_uri_dict = {}
 
-    # add self loops (self relation)
-    for i in range(num_nodes):
-        edge_list.append((i, i, 0))
-    id_to_rel_uri_dict[0] = GeraniumTerms.GERANIUM_TERM_SELF.value
-
     for s,p,o in g:
         if(p in relations_dict and s in nodes and o in nodes): # s and o have to be selected nodes (depends on graphperc)
             if p == PURLTerms.PURL_TERM_SUBJECT.value and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
@@ -265,16 +254,13 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
                 src_id = nodes_dict.get(s)
                 dst_id = nodes_dict.get(o)
                 rel_id = relations_dict.get(p)
-
-                # add edge in both direction
-                edge_list.append((src_id, dst_id, 2*rel_id - 1))
-                edge_list.append((dst_id, src_id, 2*rel_id)) #reverse relation
+                edge_list.append((src_id, dst_id, rel_id)) # add edge
 
                 # add node and relation to dictionaries used to retrieve URIs from IDs (during scoring)
                 id_to_node_uri_dict[src_id] = s
                 id_to_node_uri_dict[dst_id] = o
-                id_to_rel_uri_dict[2*rel_id - 1] = p
-                id_to_rel_uri_dict[2*rel_id] = relations_to_inverse_dict.get(p) # get corresponding inverse relation
+                id_to_rel_uri_dict[rel_id] = p
+                id_to_rel_uri_dict[rel_id + num_relations] = relations_to_inverse_dict.get(p) # get corresponding inverse relation
 
     # shuffle the edge list
     random.shuffle(edge_list)
