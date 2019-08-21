@@ -597,3 +597,46 @@ def plot_loss_to_file(loss_list):
     plt.ylabel("Loss")
     plt.title("Loss behavior over epochs")
     plt.savefig('output/loss_over_epochs.png')
+
+
+def plot_rank_statistics_from_json(ranks_json_path: str = "output/epoch_best_on_test_data/ranks.json"):
+    '''
+    Plot a graph that shows the number of triples for each rank
+    '''
+    ranks = [] # list of dicts
+    num_triples_per_rank = {} # dict with key = rank, value = number of triple with given rank
+
+    try:
+        with open(ranks_json_path, 'r') as f:
+            ranks = json.load(f)
+    except Exception as exc:
+        print("Unable to read the ranks from json, cannot plot number of triples over rank")
+        return
+
+    for rank_dict in ranks:
+        test_triple_rank = rank_dict.get("rank", -1)
+        assert test_triple_rank != -1
+
+        if num_triples_per_rank.get(test_triple_rank, -1) == -1:
+            num_triples_per_rank[test_triple_rank] = 1
+        else:
+            num_triples_per_rank[test_triple_rank] = num_triples_per_rank[test_triple_rank] +1
+
+    num_ranks_in_range = 0
+    num_triples_list = []
+    for i in range(1, len(num_triples_per_rank)):
+        # if num_triples_per_rank.get(i, 0) != 0:
+        #     print("Number of triples with rank {} : {}".format(i, num_triples_per_rank.get(i)))
+        num_triples_list.append(num_triples_per_rank.get(i, 0))
+
+    num_triples_values = np.array(num_triples_list).T
+    num_ranks_values = np.arange(1, len(num_triples_per_rank))
+
+    plt.rcParams["figure.figsize"] = [16, 9]
+    plt.plot(num_ranks_values, num_triples_values)
+    plt.xlabel("Rank value")
+    plt.ylabel("Number of triples")
+    plt.title("Number of triples per rank")
+    plt.xscale('log')
+
+    plt.savefig('output/num_triples_per_rank.png', dpi=100)

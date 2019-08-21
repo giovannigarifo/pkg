@@ -359,11 +359,11 @@ def main(args):
         id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
         id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
 
-    # print loss_list for debug
-    print("\nLoss values for each training epoch:")
-    for index, l in enumerate(loss_over_epochs):
-        print("Epoch {e} loss: {l}".format(e=index, l=l))
+    # plot loss behavior to file
     utils.plot_loss_to_file(loss_over_epochs)
+
+    # plot number of triples for each rank value to file
+    utils.plot_rank_statistics_from_json()
 
 
 
