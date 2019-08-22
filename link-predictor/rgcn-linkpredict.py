@@ -143,27 +143,62 @@ class LinkPredict(nn.Module):
 def main(args):
 
     # load data required for the prediction task
-    if(args.rdf_dataset_path):
+    if args.load_data and not args.rdf_dataset_path:
+        # load data structures from file args.load_data
+        logger.debug("Loading data structures...")
+        publications_data = torch.load(args.load_data)
+        num_nodes = publications_data['num_nodes']
+        train_data = publications_data['train_data']
+        valid_data = publications_data['valid_data']
+        test_data = publications_data['test_data']
+        num_rels = publications_data['num_rels']
+        id_to_node_uri_dict = publications_data['id_to_node_uri_dict']
+        id_to_rel_uri_dict = publications_data['id_to_rel_uri_dict']
+        logger.debug("...done.")
+
+    elif args.rdf_dataset_path and args.load_data:
+        # load from RDF graph using rdflib and save on args.load_data
         publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction",
                             args.train_perc,
                             args.valid_perc,
                             args.test_perc)
+
+        num_nodes = publications_data.num_nodes
+        train_data = np.array(publications_data.train_triples) # triples used for training
+        valid_data = torch.as_tensor(publications_data.valid_triples, dtype=torch.long) # triples used for validation
+        test_data = torch.as_tensor(publications_data.test_triples, dtype=torch.long) # triples used for test
+        num_rels = publications_data.num_relations
+        id_to_node_uri_dict = publications_data.id_to_node_uri_dict # used to retireve node URI from node ID
+        id_to_rel_uri_dict = publications_data.id_to_rel_uri_dict # used to retireve rel URI from rel ID
+
+        # save data structure for future usage
+        logger.debug("Saving data structures...")
+        torch.save({'num_nodes': num_nodes,
+                    'train_data': train_data,
+                    'valid_data': valid_data,
+                    'test_data': test_data,
+                    'num_rels': num_rels,
+                    'id_to_node_uri_dict': publications_data.id_to_node_uri_dict,
+                    'id_to_rel_uri_dict': publications_data.id_to_rel_uri_dict},
+                    args.load_data)
+        logger.debug("...done.")
+
     else:
-        publications_data = rdftodata.rdfToData(args.graph_perc, "link-prediction",
-                            args.train_perc,
-                            args.valid_perc,
-                            args.test_perc)
+        logger.debug("Dataset parameters are not valid, correct usage:")
+        for arg in vars(args):
+            logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
+        exit()
 
-    num_nodes = publications_data.num_nodes
-    train_data = publications_data.train_triples # triples used for training
-    valid_data = publications_data.valid_triples # triples used for validation
-    test_data = publications_data.test_triples # triples used for test
-    num_rels = publications_data.num_relations
 
-    # Convert T,V,T data to correct type
-    train_data = np.array(publications_data.train_triples)
-    valid_data = torch.as_tensor(valid_data, dtype=torch.long) #as_tensor doesn't crate a copy
-    test_data = torch.as_tensor(test_data, dtype=torch.long)
+    # debug prints
+    print("\n----------------------------------------")
+    print("- Input data before creating DGL graph -\n")
+    print("num_nodes: ", num_nodes)
+    print("num_rels: ", num_rels)
+    print("train_data: shape=", train_data.shape, "type=", type(train_data))
+    print("valid_data: shape=", valid_data.shape, "type=", type(valid_data))
+    print("test_data: shape=", test_data.shape, "type=", type(test_data))
+    print("----------------------------------------\n")
 
     # set CUDA if requested and available
     use_cuda = args.gpu >= 0 and torch.cuda.is_available()
@@ -175,26 +210,6 @@ def main(args):
     # set CPU threads to be used
     torch.set_num_threads(args.num_threads)
     logger.debug("CPU threads that will be used: {t}".format(t=torch.get_num_threads()))
-
-    # create model
-    model = LinkPredict(num_nodes,
-                        args.n_hidden,
-                        num_rels,
-                        num_bases=args.n_bases,
-                        num_hidden_layers=args.n_layers,
-                        dropout=args.dropout,
-                        use_cuda=use_cuda,
-                        reg_param=args.regularization)
-
-    # debug prints
-    print("\n----------------------------------------")
-    print("- Input data before creating DGL graph -\n")
-    print("num_nodes: ", num_nodes)
-    print("num_rels: ", num_rels)
-    print("train_data: shape=", train_data.shape, "type=", type(train_data))
-    print("valid_data: shape=", valid_data.shape, "type=", type(valid_data))
-    print("test_data: shape=", test_data.shape, "type=", type(test_data))
-    print("----------------------------------------\n")
 
     # build test_graph (all train_data) used for validation.
     #
@@ -222,21 +237,42 @@ def main(args):
     print("degrees:\t shape={s}, type={t}".format(s=degrees.shape, t=type(degrees)))
     print("---------------------\n")
 
+    # Create Model and Optimizer
+    print("Creating model and optimizer...")
+    model = LinkPredict(num_nodes,
+                        args.n_hidden,
+                        num_rels,
+                        num_bases=args.n_bases,
+                        num_hidden_layers=args.n_layers,
+                        dropout=args.dropout,
+                        use_cuda=use_cuda,
+                        reg_param=args.regularization)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    # load previous state from file load_model_state if required
+    if args.load_model_state is not None:
+        model_state = torch.load(args.load_model_state) # load state of previously trained model
+        model.load_state_dict(model_state['model_state_dict'], strict=False)
+        optimizer.load_state_dict(model_state['optimizer_state_dict'])
+        epoch = model_state['epoch']
+        loss = model_state['loss']
+        logger.debug("...previous model state loaded.")
+        model.train()
+    else:
+        epoch = 0
+    print("...done.")
+
     # set cuda
     if use_cuda:
         model.cuda()
 
-    # optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
-    model_state_file = 'model_state.pth'
+    model_state_file = 'model_state_' + str(time.time()) + ".pth" # filename to use to save next model state
     forward_time = []
     backward_time = []
     loss_over_epochs = []
-    epoch = 0
     best_mrr = 0
 
-    print("*************************")
+    print("\n*************************")
     print("Starting training loop...")
     print("*************************\n\n")
 
@@ -319,8 +355,8 @@ def main(args):
                                 num_nodes,
                                 hits=[1, 3, 10],
                                 eval_bz=args.eval_batch_size,
-                                id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # remove to not save ranks
-                                id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+                                id_to_node_uri_dict=id_to_node_uri_dict, # remove to not save ranks
+                                id_to_rel_uri_dict=id_to_rel_uri_dict)
 
             # save best model
             if mrr < best_mrr:
@@ -328,8 +364,14 @@ def main(args):
                     break
             else:
                 best_mrr = mrr
-                torch.save({'state_dict': model.state_dict(), 'epoch': epoch},
+                torch.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'loss': loss
+                            },
                            model_state_file)
+
             if use_cuda:
                 model.cuda() # activate again GPU
 
@@ -345,19 +387,19 @@ def main(args):
     if use_cuda:
         model.cpu() # test on CPU
     model.eval()
-    model.load_state_dict(checkpoint['state_dict'])
+    model.load_state_dict(checkpoint['model_state_dict'])
     print("Using best epoch on test data: {}".format(checkpoint['epoch']))
 
     mrr_test, score_list, rank_list = utils.evaluate("best_on_test_data", test_graph, model, test_data, num_nodes,
                     hits=[1, 3, 10],
                     eval_bz=args.eval_batch_size,
-                    id_to_node_uri_dict=publications_data.id_to_node_uri_dict, # export scores
-                    id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+                    id_to_node_uri_dict=id_to_node_uri_dict, # export scores
+                    id_to_rel_uri_dict=id_to_rel_uri_dict)
 
     # retrieve score for triplets paper-subject-topic
     utils.check_accuracy(mrr_test, test_data, rank_list,
-        id_to_node_uri_dict=publications_data.id_to_node_uri_dict,
-        id_to_rel_uri_dict=publications_data.id_to_rel_uri_dict)
+        id_to_node_uri_dict=id_to_node_uri_dict,
+        id_to_rel_uri_dict=id_to_rel_uri_dict)
 
     # plot loss behavior to file
     utils.plot_loss_to_file(loss_over_epochs)
@@ -376,7 +418,10 @@ if __name__ == '__main__':
     # parse arguments
     parser = argparse.ArgumentParser(description='RGCN')
 
-    parser.add_argument("--rdf-dataset-path", type=str, help="path to RDF dataset to use")
+    parser.add_argument("--rdf-dataset-path", type=str, default=None, help="path to RDF dataset to use")
+    parser.add_argument("--load-data", type=str, default=None, help="path to the torch dict serialized with all publications data")
+
+    parser.add_argument("--load-model-state", type=str, default=None, help="path to the pytorch model to load")
     parser.add_argument("--gpu", type=int, default=-1, help="gpu")
     parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
 

@@ -332,7 +332,7 @@ def perturb_and_get_rank(embedding, w, a, r, b, epoch, batch_size=100, \
                 rank_list.append(rank_dict)
 
         t2 = time.time()
-        print("Finished batch {} / {} in {} seconds ({} triples)".format(idx, n_batch, t2-t1, len(batch_a)))
+        #print("Finished batch {} / {} in {} seconds ({} triples)".format(idx, n_batch, t2-t1, len(batch_a)))
 
     return torch.cat(ranks), score_list, rank_list # last two will be empty if URI dicts are empty
 
