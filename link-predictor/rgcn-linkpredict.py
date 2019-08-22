@@ -250,13 +250,13 @@ def main(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # load previous state from file load_model_state if required
-    if args.load_model_state is not None:
+    if args.load_model_state is not None and args.load_data is not None and args.rdf_dataset_path is None:
         model_state = torch.load(args.load_model_state) # load state of previously trained model
         model.load_state_dict(model_state['model_state_dict'], strict=False)
         optimizer.load_state_dict(model_state['optimizer_state_dict'])
         epoch = model_state['epoch']
         loss = model_state['loss']
-        logger.debug("...previous model state loaded.")
+        logger.debug("...previous model and optimizer state correctly loaded...")
         model.train()
     else:
         epoch = 0
