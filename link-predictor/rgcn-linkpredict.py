@@ -247,6 +247,9 @@ def main(args):
                         dropout=args.dropout,
                         use_cuda=use_cuda,
                         reg_param=args.regularization)
+    if use_cuda:
+        model.cuda()
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # load previous state from file load_model_state if required
@@ -261,10 +264,6 @@ def main(args):
     else:
         epoch = 0
     print("...done.")
-
-    # set cuda
-    if use_cuda:
-        model.cuda()
 
     model_state_file = 'model_state_' + str(time.time()) + ".pth" # filename to use to save next model state
     forward_time = []
