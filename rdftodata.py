@@ -49,6 +49,7 @@ class PublicationsDataset:
     def __init__(self, num_nodes: int, num_relations: int, num_labels: int, labels: list, \
         edges_sources: list, edges_destinations: list, edges_relations: list, edges_norms: list, \
         id_to_node_uri_dict: dict = {}, id_to_rel_uri_dict: dict = {}):
+
         self.num_nodes = num_nodes # number of nodes in the graph
         self.num_relations = num_relations # number of relations in the graph
         self.num_labels = num_labels # number of labels of the nodes
@@ -68,42 +69,87 @@ class PublicationsDataset:
     def initTrainValidTestTriples(self, train_perc: float=0.9, valid_perc: float=0.05, test_perc: float=0.05):
         '''
         Splits the triples dataset into train, test and validation sets. The split
-        is based on the relation, taking the given percentage for each relation type.
+        is done per relation, taking the given percentage of triples for each relation type.
+
+        All the triples are of the form (publications,x,y), this means that the source
+        node is always a publication.
+
+        All the nodes must be present in the train set in order to obtain an
+        embedding for all nodes. This is why there are two for loop, the first one is
+        used to pick a train triple for each node present in the relation-triples dictionary.
         '''
         assert valid_perc + test_perc + train_perc == 1
 
         # setup logging
         logger = logging.getLogger('rdftodata_logger')
-        logger.debug("Splitting triples in: {}% train, {}% validation, {}% test...".format(train_perc*100, valid_perc*100, test_perc*100))
+        logger.debug("Splitting {} triples in: {}% train, {}% validation, {}% test...".format(
+                len(self.edges_sources), train_perc*100, valid_perc*100, test_perc*100))
 
-        triples = list(zip(self.edges_sources, self.edges_relations, self.edges_destinations))
+        # set of all triples
+        triples = set(zip(self.edges_sources, self.edges_relations, self.edges_destinations))
+        assert len(triples) == len(self.edges_sources) == len(self.edges_destinations)
 
-        # divide triples by relations
-        dict_rel_triples = {rel_index: list() for rel_index in range(self.num_relations)}
+        # collect triples by relation in a dictionary
+        dict_rel_triples = {rel_index: set() for rel_index in range(self.num_relations)}
         for triple in triples:
-            dict_rel_triples.get(triple[1]).append(triple)
+            dict_rel_triples.get(triple[1]).add(triple)
 
-        # # calc relation ratio: how much triples for each relation
-        # dict_rel_num_triples = {rel_index: (len(dict_rel_triples.get(rel_index))/len(triples))*100 for rel_index in range(self.num_relations)}
+        # set of unseen nodes (all nodes at the beginning)
+        unseen_nodes = set(self.edges_sources)
+        unseen_nodes.update(set(self.edges_destinations))
+        assert len(unseen_nodes) == self.num_nodes
 
-        # for each relation split triples in training/valid/test sets.
-        for rel in range(0, self.num_relations):
-            rel_triples = dict_rel_triples.get(rel) # all triples for this relation
-            num_triples = len(rel_triples)
+        # set of seen nodes (empty at beginning)
+        seen_nodes = set()
 
-            num_train = int(num_triples * train_perc)
-            self.train_triples.extend(rel_triples[:num_train])
+        # for each list of triples
+        for rel, rel_triples in dict_rel_triples.items():
 
-            num_valid = int(num_triples * valid_perc)
-            self.valid_triples.extend(rel_triples[num_train:(num_train+num_valid)])
+            # seen and unseen nodes for this relation
+            unseen_nodes = [triple[0] for triple in rel_triples]
+            unseen_nodes.extend([triple[2] for triple in rel_triples])
+            unseen_nodes = set(unseen_nodes) # all nodes for this relation
+            seen_nodes = set()
 
-            self.test_triples.extend(rel_triples[num_train+num_valid:])
+            # amount of triples to get for train, test, valid for this relation
+            num_train = int(train_perc*len(rel_triples))
+            num_valid = int(valid_perc*len(rel_triples))
+            num_test = int(test_perc*len(rel_triples))
+
+            for num_set in [(num_train, self.train_triples, "train"),
+                            (num_valid, self.valid_triples, "valid"),
+                            (num_test, self.test_triples, "test")]:
+
+                num_to_pick = num_set[0] # number of train/valid/test triples to pick for this relation
+                triples_set = num_set[1] # train/valid/test set
+                num_picked = 0
+
+                # be sure to have all nodes present in train set
+                if num_set[2] == "train":
+                    for triple in rel_triples.copy(): #iterate over copy and remove from original
+                        if triple[0] in seen_nodes and triple[2] in seen_nodes:
+                            continue
+                        elif num_picked != num_to_pick:
+                            triples_set.append(triple) # get the triple if one of the nodes or both not seen
+                            rel_triples.discard(triple)
+                            seen_nodes.add(triple[0])
+                            seen_nodes.add(triple[2])
+                            num_picked += 1
+
+                for triple in rel_triples.copy():
+                    if num_picked == num_to_pick and num_set[2] != "test": # for test set, get all the remaining
+                        break
+                    else:
+                        triples_set.append(triple) # add triple to T/V/T set
+                        rel_triples.discard(triple)
+                        num_picked += 1
 
         logger.debug("...finished:")
         logger.debug(" - Number of training triples: {}".format(len(self.train_triples)))
         logger.debug(" - Number of validation triples: {}".format(len(self.valid_triples)))
         logger.debug(" - Number of test triples: {}".format(len(self.test_triples)))
         assert len(self.train_triples) + len(self.test_triples) + len(self.valid_triples) == len(triples)
+
 
     def checkCorrectness(self, g: Graph):
         '''
@@ -300,8 +346,6 @@ def topicSampling(g: Graph, num_topics_to_remove: int):
                 for _,_,topic in g.triples((s,PURL.subject, None)):
                     if (topic, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: # only TMF topics
                         pass # TODO
-
-
 
 
 def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: str = "classification",
