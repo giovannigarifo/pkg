@@ -557,10 +557,10 @@ def check_accuracy(mrr_test, test_data,
     ranks_summary = [
         [0, 1], # number of triples with rank equal to 1
         [0, 3], # number of triples with rank between 2 and 3
-        [0, 5], # number of triples with rank between 3 and 5
-        [0, 7], # number of triples with rank between 5 and 7
-        [0, 10], # number of triples with rank between 7 and 10
-        [0, 15]  # number of triples with rank greater then 15
+        [0, 5], # number of triples with rank between 4 and 5
+        [0, 7], # number of triples with rank between 6 and 7
+        [0, 10], # number of triples with rank between 8 and 10
+        [0, 15]  # number of triples with rank between 11 and 15
     ]
 
     for score_dict in rank_list:
@@ -575,12 +575,12 @@ def check_accuracy(mrr_test, test_data,
             ranks_summary[3][0] += 1
         if rank > ranks_summary[3][1] and rank <= ranks_summary[4][1]:
             ranks_summary[4][0] += 1
-        if rank > ranks_summary[4][1]:
+        if rank > ranks_summary[4][1] and rank <= ranks_summary[5][1]:
             ranks_summary[5][0] += 1
 
     print("Number of ranked triples: ", len(rank_list))
     for summary in ranks_summary:
-        print("Number of triples with rank in range with threshold {range}: {n}".format(range=summary[1], n=summary[0]))
+        print("Number of triples with rank in range with upper bound {range}: {n}".format(range=summary[1], n=summary[0]))
 
     accuracy = (ranks_summary[0][0]/len(rank_list))*100
     print("Accuracy (percentage of triples with rank equal to 1) over test data: {a}%".format(a=accuracy))
