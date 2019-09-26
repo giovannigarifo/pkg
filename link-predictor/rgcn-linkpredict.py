@@ -140,7 +140,7 @@ class LinkPredict(nn.Module):
 #----------#
 # - Main - #
 #----------#
-def main(args):
+def linkpredict(args):
 
     # load data required for the prediction task
     if args.load_data and not args.rdf_dataset_path:
@@ -188,6 +188,37 @@ def main(args):
         for arg in vars(args):
             logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
         exit()
+
+
+    print("\n----------------------------------------")
+    train_nodes = set()
+    for triple in train_data:
+        train_nodes.add(triple[0].item())
+        train_nodes.add(triple[2].item())
+
+    valid_nodes = set()
+    for triple in valid_data:
+        valid_nodes.add(triple[0].item())
+        valid_nodes.add(triple[2].item())
+
+    test_nodes = set()
+    for triple in test_data:
+        test_nodes.add(triple[0].item())
+        test_nodes.add(triple[2].item())
+
+    valid_not_in_train = 0
+    for node in valid_nodes:
+        if node not in train_nodes:
+            valid_not_in_train +=1
+
+    test_not_in_train = 0
+    for node in test_nodes:
+        if node not in train_nodes:
+            test_not_in_train += 1
+
+    print(valid_not_in_train)
+    print(test_not_in_train)
+    print("\n----------------------------------------")
 
 
     # debug prints
@@ -407,6 +438,133 @@ def main(args):
     utils.plot_rank_statistics_from_json()
 
 
+def linkeval(args):
+    '''
+    Use this function to use an already trained model to obtain the nodes and relation embedding
+    useful to evaluate new facts inside the knowledge base.
+    All the node embeddings are saved into a json to be later searchable.
+    DistMult can then be used to obtain the score of associated to new facts, such as new
+    triples of type (paper, subject, topic).
+    '''
+    # load data required
+    if args.load_data and not args.rdf_dataset_path:
+        # load data structures from file args.load_data
+        logger.debug("Loading data structures...")
+        publications_data = torch.load(args.load_data)
+        num_nodes = publications_data['num_nodes']
+        train_data = publications_data['train_data']
+        valid_data = publications_data['valid_data']
+        test_data = publications_data['test_data']
+        num_rels = publications_data['num_rels']
+        id_to_node_uri_dict = publications_data['id_to_node_uri_dict']
+        id_to_rel_uri_dict = publications_data['id_to_rel_uri_dict']
+        logger.debug("...done.")
+    else:
+        logger.debug("Dataset parameters (load-data or rdf-dataset-path) are not valid, correct usage:")
+        for arg in vars(args):
+            logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
+        exit()
+
+    # put together all triples: train, test and valid.
+    whole_data = np.concatenate((train_data, valid_data, test_data))
+
+    # debug prints
+    print("\n----------------------------------------")
+    print("- Input data before creating DGL graph -\n")
+    print("num_nodes: ", num_nodes)
+    print("num_rels: ", num_rels)
+    print("triples: shape=", whole_data.shape, "type=", type(whole_data))
+    print("----------------------------------------\n")
+
+    # set CUDA if requested and available
+    use_cuda = args.gpu >= 0 and torch.cuda.is_available()
+    if use_cuda:
+        torch.cuda.set_device(args.gpu)
+        logger.debug("CUDA activated for GPU {}".format(args.gpu))
+    else: logger.debug("CUDA not available.")
+
+    # set CPU threads to be used
+    torch.set_num_threads(args.num_threads)
+    logger.debug("CPU threads that will be used: {t}".format(t=torch.get_num_threads()))
+
+    # build DGL test_graph with ALL triples: train, valid and test
+    whole_graph, whole_rel, whole_norm = utils.build_test_graph(num_nodes, num_rels, whole_data)
+    whole_node_id = torch.arange(0, num_nodes, dtype=torch.long).view(-1, 1)
+    whole_rel = torch.from_numpy(whole_rel)
+    whole_norm = torch.from_numpy(whole_norm).view(-1, 1)
+    whole_graph.ndata.update({'id': whole_node_id, 'norm': whole_norm}) # add test_norm for each node
+    whole_graph.edata['type'] = whole_rel # add relation type for each edge
+
+    # build adj list and calculate degrees for sampling
+    adj_list, degrees = utils.get_adj_and_degrees(num_nodes, whole_data)
+
+    print("\n---------------------")
+    print("- DGL graph created -\n")
+    print("test_graph:\t number_of_nodes=",whole_graph.number_of_nodes(), "number_of_edges=", whole_graph.number_of_edges())
+    print("test_node_id:\t shape=", whole_node_id.shape," type=", type(whole_node_id))
+    print("test_rel:\t shape=", whole_rel.shape," type=", type(whole_rel))
+    print("test_norm:\t shape=", whole_norm.shape," type=", type(whole_norm))
+    print("adj_list:\t length={l}, type={t}".format(l=len(adj_list), t=type(adj_list)))
+    print("degrees:\t shape={s}, type={t}".format(s=degrees.shape, t=type(degrees)))
+    print("---------------------\n")
+
+    # Create Model and Optimizer
+    logger.debug("Creating model...")
+    model = LinkPredict(num_nodes,
+                        args.n_hidden,
+                        num_rels,
+                        num_bases=args.n_bases,
+                        num_hidden_layers=args.n_layers,
+                        dropout=args.dropout,
+                        use_cuda=use_cuda,
+                        reg_param=args.regularization)
+    if use_cuda:
+        model.cuda()
+    # load previous state from file load_model_state if required
+    if args.load_model_state is not None and args.load_data is not None and args.rdf_dataset_path is None:
+        if use_cuda:
+            model_state = torch.load(args.load_model_state) # load state of previously trained model
+        else:
+            model_state = torch.load(args.load_model_state, map_location='cpu')
+        model.load_state_dict(model_state['model_state_dict'], strict=False)
+        logger.debug("...previous model state correctly loaded.")
+        model.train()
+
+    # ----------------------------------
+    #
+    # ----------------------------------
+    model.eval() # set eval mode
+    with torch.no_grad():
+        embeddings, w_rels = model.evaluate(whole_graph) # get all the embeddings and relations parameters
+
+        # save in the dictionary "relation_all_objects_dict" the set of all objects (=value)
+        # for each given relation (=key)
+        #   key   = relation_id
+        #   value = set of all the objects for such relation
+        #
+        # build the values of dictionary "subrel_all_objects_dict" where
+        #   key   = tuple(subject,relation)
+        #   value = set(all possible objects for such relation) - set(objects already present for (s,r))
+        relation_all_objects_dict = dict()
+        subrel_all_objects_dict = dict()
+
+        for triple in whole_data:
+            sub, rel, obj = triple
+            if relation_all_objects_dict.get(rel, None) == None:
+                relation_all_objects_dict[rel] = set() # initialize
+            relation_all_objects_dict[rel].add(obj)
+
+        for triple in whole_data:
+            sub, rel, obj = triple
+            if subrel_all_objects_dict.get((sub, rel), None) == None:
+                subrel_all_objects_dict[(sub, rel)] = relation_all_objects_dict[rel].copy() # add all obj set
+            subrel_all_objects_dict[(sub, rel)].remove(obj) # remove seen object
+
+        print("Dictionary built, statistics:")
+        print("number of (s,r) keys: ", len(subrel_all_objects_dict.keys()))
+
+        for subrel_obj in subrel_all_objects_dict.items():
+            print("key = ({}, {}), value_len= {}".format(subrel_obj[0][0], subrel_obj[0][1], len(subrel_obj[1])))
 
 if __name__ == '__main__':
 
@@ -417,18 +575,24 @@ if __name__ == '__main__':
     # parse arguments
     parser = argparse.ArgumentParser(description='RGCN')
 
+    # linkeval or linkpredict
+    parser.add_argument("--job", type=str, default=None, help="Train new model or use existing one to evaluate triples")
+    parser.add_argument("--triples-path", type=str, default=None, help="Triple to evaluate if job is linkeval")
+
     parser.add_argument("--rdf-dataset-path", type=str, default=None, help="path to RDF dataset to use")
     parser.add_argument("--load-data", type=str, default=None, help="path to the torch dict serialized with all publications data")
-
     parser.add_argument("--load-model-state", type=str, default=None, help="path to the pytorch model to load")
+
     parser.add_argument("--gpu", type=int, default=-1, help="gpu")
     parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
 
+    # graph and triples splits
     parser.add_argument("--graph-perc", type=float, default=1.0, help="percentage of the nodes to be sampled. 0.5 means get 50 percent of the nodes.")
     parser.add_argument("--train-perc", type=float, default=0.9, help="Train split percentage for the triplets")
     parser.add_argument("--valid-perc", type=float, default=0.05, help="Validation split percentage for the triplets")
     parser.add_argument("--test-perc", type=float, default=0.05, help="Test split percentage for the triplets")
 
+    # hyperparameters
     parser.add_argument("--dropout", type=float, default=0.2, help="dropout probability")
     parser.add_argument("--n-hidden", type=int, default=500, help="number of hidden units")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
@@ -449,4 +613,9 @@ if __name__ == '__main__':
     for arg in vars(args):
         logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
 
-    main(args)
+    if args.job == None:
+        logger.debug("Wrong job parameter, use \"linkpredict\" or \"linkeval\"")
+    elif args.job == "linkpredict":
+        linkpredict(args)
+    elif args.job == "linkeval":
+        linkeval(args)
