@@ -14,6 +14,10 @@ from multiprocessing.pool import ThreadPool
 import json
 import matplotlib.pyplot as plt
 
+# for data import
+import sys
+sys.path.append('..')
+import rdftodata
 
 #######################################################################
 #
@@ -427,8 +431,11 @@ def evaluate(epoch,
 # Utility functions for testing
 ######################################################
 
-def save_list_as_json(list_to_print, file_name, epoch):
-    dir_path = "./output/epoch_" + str(epoch) + "/"
+def save_list_as_json(list_to_print, file_name, epoch: int = -1):
+    if epoch >= 0:
+        dir_path = "./output/epoch_" + str(epoch) + "/"
+    else:
+        dir_path = "./output/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     with open(dir_path + file_name + ".json", "w") as f:
@@ -640,3 +647,116 @@ def plot_rank_statistics_from_json(ranks_json_path: str = "output/epoch_best_on_
     plt.xscale('log')
 
     plt.savefig('output/num_triples_per_rank.png', dpi=100)
+
+
+
+
+#########################################################################
+# Utility functions for linkeval()
+#########################################################################
+
+
+def calc_score(
+        embedding, w,
+        s, r,
+        batch_size = 30,
+        num_scored_triples = 30,
+        id_to_node_uri_dict: dict = {},
+        id_to_rel_uri_dict: dict = {}
+    ):
+    """
+    Calculate the rank of triples (subj, rel, all_possible_objects) using
+    distmult = sum(s*r*o)
+    """
+    n_batch = (len(s) + batch_size - 1) // batch_size
+    score_dict = dict()
+
+    for idx in range(n_batch):
+
+        t1 = time.time()
+        batch_start = idx * batch_size
+        batch_end = min(len(s), (idx + 1) * batch_size)
+
+        batch_s = s[batch_start: batch_end] # subjects batch
+        batch_r = r[batch_start: batch_end] # relation batch
+
+        emb_sr = embedding[batch_s] # element wise subject_embedding * w_relation
+        emb_sr = emb_sr * w[batch_r]
+        emb_sr = emb_sr.transpose(0, 1).unsqueeze(2) # size: D x E x 1 <=> EMBEDDING_SIZE x BATCH_SIZE x 1
+
+        # get in emb_c the embeddings of ALL nodes
+        emb_all_o = embedding.transpose(0, 1).unsqueeze(1) # size: D x 1 x V <=> EMBEDDING_SIZE x 1 x NUM_NODES
+
+        # (subject_embedding * w_relation) * object_embedding (all)
+        out_prod = torch.bmm(emb_sr, emb_all_o) # size D x E x V <=> EMBEDDING_SIZE x BATCH_SIZE x NUM_NODES
+        score = torch.sum(out_prod, dim=0) # size E x V <=> BATCH_SIZE x NUM_NODES
+        score = torch.sigmoid(score) # cap the score between 0 and 1
+
+        # sort descending the scores, also get objects indicies in order
+        # to reconstruct the triple (sub,rel,obj)
+        sorted_score, obj_indices = torch.sort(score, dim=1, descending=True)
+
+        # trim to get only the best scores (look at hyperparameter "num_scored_triples")
+        sorted_score = sorted_score[:, :num_scored_triples]
+        obj_indices = obj_indices[:, :num_scored_triples]
+
+        # save all the scores obtained for this batch
+        for scores, objects in zip(sorted_score, obj_indices):
+            for sub, rel, obj, score in zip(batch_s, batch_r, objects, scores):
+                # get URIs
+                sub = id_to_node_uri_dict.get(int(sub))
+                rel = id_to_rel_uri_dict.get(int(rel))
+                obj = id_to_node_uri_dict.get(int(obj.item()))
+
+                # test if the triple is semantically correct (domain)
+                if check_domain_correctness(sub, rel, obj) is False:
+                    continue
+
+                # get dict relation->list of all objects with associated scores
+                rel_dict = score_dict.get(sub, None)
+                if rel_dict == None:
+                    score_dict[sub] = dict()
+                    rel_dict = score_dict[sub]
+
+                # add to list the dict obj->score for (sub,rel,obj)
+                obj_list = rel_dict.get(rel, None)
+                if obj_list == None:
+                    rel_dict[rel] = list()
+                    obj_list = rel_dict[rel]
+                obj_list.append({obj: score.item()})
+
+        t2 = time.time()
+        print("...scores calculated for batch {} / {} in {}s".format(idx, n_batch, t2-t1))
+
+    # save scores info to json
+    save_list_as_json(score_dict, "evaluated_scores")
+
+
+def check_domain_correctness(sub: str, rel: str, obj: str) -> bool:
+    '''
+    Checks if the triple is semantically correct in the domain
+    of interest, in example, a triple (publication, subject, publication)
+    doesn't make any sense.
+
+    Returns true or false.
+    '''
+    check = False
+
+    # check if correct triple (publication, subject, topic)
+    if rel == rdftodata.PURLTerms.PURL_TERM_SUBJECT.value \
+        and "http://dbpedia.org/resource/" in obj:
+        check = True
+    # check if correct triple (publication, publisher, journal)
+    elif rel == rdftodata.PURLTerms.PURL_TERM_PUBLISHER.value \
+        and rdftodata.GeraniumNamespace.GERANIUM_JOU.value in obj:
+        check = True
+    # check if correct triple (publication, creator, author)
+    elif rel == rdftodata.PURLTerms.PURL_TERM_CREATOR.value \
+        and rdftodata.GeraniumNamespace.GERANIUM_AUT.value in obj:
+        check = True
+    # check if correct triple (publication, contributor, author)
+    elif rel == rdftodata.PURLTerms.PURL_TERM_CONTRIBUTOR.value \
+        and rdftodata.GeraniumNamespace.GERANIUM_AUT.value in obj:
+        check = True
+
+    return check

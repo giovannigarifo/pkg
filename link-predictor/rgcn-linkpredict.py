@@ -537,34 +537,31 @@ def linkeval(args):
     with torch.no_grad():
         embeddings, w_rels = model.evaluate(whole_graph) # get all the embeddings and relations parameters
 
-        # save in the dictionary "relation_all_objects_dict" the set of all objects (=value)
-        # for each given relation (=key)
-        #   key   = relation_id
-        #   value = set of all the objects for such relation
-        #
-        # build the values of dictionary "subrel_all_objects_dict" where
-        #   key   = tuple(subject,relation)
-        #   value = set(all possible objects for such relation) - set(objects already present for (s,r))
-        relation_all_objects_dict = dict()
-        subrel_all_objects_dict = dict()
-
+        # build a dict where for each (sub,rel) there is the list of all objects
+        # present in the graph for such couple of subject and relation.
+        subrel_objects_dict = dict()
         for triple in whole_data:
             sub, rel, obj = triple
-            if relation_all_objects_dict.get(rel, None) == None:
-                relation_all_objects_dict[rel] = set() # initialize
-            relation_all_objects_dict[rel].add(obj)
+            if subrel_objects_dict.get((sub, rel), None) == None:
+                subrel_objects_dict[(sub, rel)] = set()
+            subrel_objects_dict[(sub, rel)].add(obj) # add object if present in graph
 
+        # get in a set (no repetitions) the existent couples (subject, relation) in whole_graph
+        subrel = set()
         for triple in whole_data:
-            sub, rel, obj = triple
-            if subrel_all_objects_dict.get((sub, rel), None) == None:
-                subrel_all_objects_dict[(sub, rel)] = relation_all_objects_dict[rel].copy() # add all obj set
-            subrel_all_objects_dict[(sub, rel)].remove(obj) # remove seen object
+            subrel.add((triple[0], triple[1]))
 
-        print("Dictionary built, statistics:")
-        print("number of (s,r) keys: ", len(subrel_all_objects_dict.keys()))
+        sub = list()
+        rel = list()
+        for s, r in subrel:
+            sub.append(s)
+            rel.append(r)
 
-        for subrel_obj in subrel_all_objects_dict.items():
-            print("key = ({}, {}), value_len= {}".format(subrel_obj[0][0], subrel_obj[0][1], len(subrel_obj[1])))
+        # calculate the scores using distmult and save to json
+        utils.calc_score(embeddings, w_rels, \
+            sub, rel, \
+            args.num_scored_triples, args.eval_batch_size, id_to_node_uri_dict, id_to_rel_uri_dict)
+
 
 if __name__ == '__main__':
 
@@ -606,6 +603,8 @@ if __name__ == '__main__':
     parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of sampled edges (see graph-batch-size) used as positive sample")
     parser.add_argument("--negative-sample", type=int, default=10, help="number of negative samples per positive sample")
     parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
+
+    parser.add_argument("--num-scored-triples", type=int, default=30, help="number of scored triples to save in linkeval")
 
     args = parser.parse_args()
 
