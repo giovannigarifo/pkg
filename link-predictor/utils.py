@@ -702,7 +702,7 @@ def calc_score(
 
         # save all the scores obtained for this batch
         for scores, objects in zip(sorted_score, obj_indices):
-            for sub, rel, obj, score in zip(batch_s, batch_r, objects, scores):
+            for sub, rel, obj, triple_score in zip(batch_s, batch_r, objects, scores):
                 # get URIs
                 sub = id_to_node_uri_dict.get(int(sub))
                 rel = id_to_rel_uri_dict.get(int(rel))
@@ -723,7 +723,7 @@ def calc_score(
                 if obj_list == None:
                     rel_dict[rel] = list()
                     obj_list = rel_dict[rel]
-                obj_list.append({obj: score.item()})
+                obj_list.append({obj: triple_score.item()})
 
         t2 = time.time()
         print("...scores calculated for batch {} / {} in {}s".format(idx, n_batch, t2-t1))
