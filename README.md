@@ -7,7 +7,7 @@ Implementation of an R-GCN based model for node embedding using [Deep Graph Libr
 
 # Relational Graph Convolutional Network (RGCN)
 
-RGCNs are a kind of GraphConvNet that operates on [knowledge graphs](https://en.wikipedia.org/wiki/Knowledge_Graph). 
+RGCNs are a kind of GraphConvNet that operates on [knowledge graphs](https://en.wikipedia.org/wiki/Knowledge_Graph).
 
 The main difference with respect to classical GCNs that operates on graphs is that RGCNs operates on multigraphs with labeled edges.
 
@@ -23,4 +23,10 @@ on 32GB of system memory and GPU with 8GB of video memory, with training on GPU 
 
 ```
 python3 -u rgcn-linkpredict.py --gpu=0 --num-threads=7 --graph-perc="1.0" --eval-batch-size="80" --graph-batch-size=20000 --rdf-dataset-path="../data/anni2013-2017_with_img.xml" 2>&1 | tee output/out.log
+```
+
+# New links evaluation
+
+```
+python3 -u rgcn-linkpredict.py --job="linkeval" --num-threads=7 --graph-perc="1.0" --eval-batch-size="30" --graph-batch-size="10000" --load-model-state="model_state.pth" --load-data="input/publications.pth" --num-scored-triples="30" 2>&1 | tee output/output.log
 ```
