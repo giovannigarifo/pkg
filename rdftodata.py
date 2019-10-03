@@ -219,10 +219,12 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     # 1. retrieve the set (no duplicates) of nodes for the RGCN task, only the nodes listen in
     #    GeraniumOntology, with the exclusion of the Authorkeyword nodes, are selected.
     nodes = set()
-    for (s,p,o) in g:
+    for (s, p, o) in g:
         for geranium_ont_type in [t for t in GeraniumOntology if t != GeraniumOntology.GERANIUM_ONTOLOGY_KEY]:
             if (s, RDF.type, geranium_ont_type.value) in g:
                 nodes.add(s)
+            if (o, RDF.type, geranium_ont_type.value) in g:
+                nodes.add(o)
 
     # take only some nodes based on the percentage defined by graphperc
     num_nodes = int(len(nodes) * graphperc)
@@ -241,7 +243,7 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     relations_set = set()
     relations_to_inverse_dict = {}
 
-    for (s,p,o) in g:
+    for (s, p, o) in g:
         # if it's a triple between nodes, add predicate to relation set (=> no duplicates allowed)
         if s in nodes and o in nodes:
             relations_set.add(p)
@@ -264,6 +266,16 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
                 labels_dict[nodes_dict.get(s)] = Label.JOURNAL.value
             elif (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: #s it's a TMF topic
                 labels_dict[nodes_dict.get(s)] = Label.TOPIC.value
+        # save label of node in dictionary
+        if o in nodes:
+            if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_PUB.value) in g:
+                labels_dict[nodes_dict.get(o)] = Label.PUBLICATION.value
+            elif (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g:
+                labels_dict[nodes_dict.get(o)] = Label.AUTHOR.value
+            elif (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_JOU.value) in g:
+                labels_dict[nodes_dict.get(o)] = Label.JOURNAL.value
+            elif (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
+                labels_dict[nodes_dict.get(o)] = Label.TOPIC.value
 
     logger.debug("Relations found:")
     for relation in relations_set:
@@ -292,7 +304,7 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     id_to_node_uri_dict = {} # used to retrieve URIs from IDs later during evaluation
     id_to_rel_uri_dict = {}
 
-    for s,p,o in g:
+    for s, p, o in g:
         if(p in relations_dict and s in nodes and o in nodes): # s and o have to be selected nodes (depends on graphperc)
             if p == PURLTerms.PURL_TERM_SUBJECT.value and not (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
                 pass # only TMF topics, no author keywords
