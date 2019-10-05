@@ -217,14 +217,22 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     logger.debug("Start building the data structures from the rdflib Graph...")
 
     # 1. retrieve the set (no duplicates) of nodes for the RGCN task, only the nodes listen in
-    #    GeraniumOntology, with the exclusion of the Authorkeyword nodes, are selected.
+    #    GeraniumOntology are added, with the exclusion of:
+    #    - Authorkeyword nodes
+    #    - External authors (which doesn't have a Polito ID, starting with "rp")
     nodes = set()
     for (s, p, o) in g:
         for geranium_ont_type in [t for t in GeraniumOntology if t != GeraniumOntology.GERANIUM_ONTOLOGY_KEY]:
             if (s, RDF.type, geranium_ont_type.value) in g:
-                nodes.add(s)
+                if (s, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g and "rp" not in s: # no external authors
+                    pass
+                else:
+                    nodes.add(s)
             if (o, RDF.type, geranium_ont_type.value) in g:
-                nodes.add(o)
+                if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_AUT.value) in g and "rp" not in o: # no external authors
+                    pass
+                else:
+                    nodes.add(o)
 
     # take only some nodes based on the percentage defined by graphperc
     num_nodes = int(len(nodes) * graphperc)
@@ -338,26 +346,6 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
     return PublicationsDataset(num_nodes, num_relations, num_labels, labels, \
         edges_sources, edges_destinations, edges_relations, edges_norms, \
         id_to_node_uri_dict, id_to_rel_uri_dict)
-
-
-def topicSampling(g: Graph, num_topics_to_remove: int):
-    '''
-    Removes from the graph a number of "num_topics_to_remove" topics for each triple (paper, subject, topic), the
-    triple is removed only if the topic has been already seen at least one time.
-
-    The removed triples are collected so that they can be later added in the evaluation graph to check
-    if the model is able to give them an high score, thus to be able to correctly predict the topic of a paper.
-    '''
-    seen_topics = dict()
-    seen_papers = dict()
-
-    for s,p,o in g.triples((None, PURL.subject, None)):
-        if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: # only TMF topics, discard user keywords
-            if not seen_papers.get(s):
-                seen_papers[s] = True
-                for _,_,topic in g.triples((s,PURL.subject, None)):
-                    if (topic, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g: # only TMF topics
-                        pass # TODO
 
 
 def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: str = "classification",

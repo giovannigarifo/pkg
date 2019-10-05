@@ -184,42 +184,10 @@ def linkpredict(args):
         logger.debug("...done.")
 
     else:
-        logger.debug("Dataset parameters are not valid, correct usage:")
+        logger.debug("\nDataset parameters are not valid, correct usage:\n")
         for arg in vars(args):
             logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
         exit()
-
-
-    print("\n----------------------------------------")
-    train_nodes = set()
-    for triple in train_data:
-        train_nodes.add(triple[0].item())
-        train_nodes.add(triple[2].item())
-
-    valid_nodes = set()
-    for triple in valid_data:
-        valid_nodes.add(triple[0].item())
-        valid_nodes.add(triple[2].item())
-
-    test_nodes = set()
-    for triple in test_data:
-        test_nodes.add(triple[0].item())
-        test_nodes.add(triple[2].item())
-
-    valid_not_in_train = 0
-    for node in valid_nodes:
-        if node not in train_nodes:
-            valid_not_in_train +=1
-
-    test_not_in_train = 0
-    for node in test_nodes:
-        if node not in train_nodes:
-            test_not_in_train += 1
-
-    print(valid_not_in_train)
-    print(test_not_in_train)
-    print("\n----------------------------------------")
-
 
     # debug prints
     print("\n----------------------------------------")
