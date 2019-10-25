@@ -431,11 +431,20 @@ def evaluate(epoch,
 # Utility functions for testing
 ######################################################
 
-def save_list_as_json(list_to_print, file_name, epoch: int = -1):
-    if epoch >= 0:
-        dir_path = "./output/epoch_" + str(epoch) + "/"
-    else:
-        dir_path = "./output/"
+def save_list_as_json(list_to_print, file_name, epoch):
+
+    # build path
+    dir_path = ""
+    if epoch is str:
+        if epoch == "best_on_test_data":
+            dir_path = "./output/epoch_best_on_test_data/"
+    if epoch is int:
+        if epoch >= 0:
+            dir_path = "./output/epoch_" + str(epoch) + "/"
+    if dir_path == "":
+        return
+
+    # write the json to file
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     with open(dir_path + file_name + ".json", "w") as f:
