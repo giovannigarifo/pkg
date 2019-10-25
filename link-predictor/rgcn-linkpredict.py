@@ -399,6 +399,10 @@ def linkpredict(args):
         id_to_node_uri_dict=id_to_node_uri_dict,
         id_to_rel_uri_dict=id_to_rel_uri_dict)
 
+    # enable error logging level (avoid matplotlib debug logging to stdout)
+    logging.basicConfig(stream=sys.stdout, level=logging.ERROR, \
+                        format='[%(name)s - %(levelname)s] %(message)s')
+
     # plot loss behavior to file
     utils.plot_loss_to_file(loss_over_epochs)
 
