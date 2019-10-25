@@ -143,10 +143,10 @@ class LinkPredict(nn.Module):
 def model_trainer(args):
 
     # load dataset
-    if args.load_data and not args.rdf_graph_path:
-        # load data structures from file args.load_data
+    if args.load_dataset and not args.rdf_graph_path:
+        # load data structures from file args.load_dataset
         logger.debug("Loading data structures...")
-        publications_data = torch.load(args.load_data)
+        publications_data = torch.load(args.load_dataset)
         num_nodes = publications_data['num_nodes']
         train_data = publications_data['train_data']
         valid_data = publications_data['valid_data']
@@ -156,8 +156,8 @@ def model_trainer(args):
         id_to_rel_uri_dict = publications_data['id_to_rel_uri_dict']
         logger.debug("...done.")
 
-    elif args.rdf_graph_path and args.load_data:
-        # load from RDF graph using rdflib and save on args.load_data
+    elif args.rdf_graph_path and args.load_dataset:
+        # load from RDF graph using rdflib and save on args.load_dataset
         publications_data = rdftodata.rdfToData(args.rdf_graph_path, args.graph_perc, "link-prediction",
                             args.train_perc,
                             args.valid_perc,
@@ -180,7 +180,7 @@ def model_trainer(args):
                     'num_rels': num_rels,
                     'id_to_node_uri_dict': publications_data.id_to_node_uri_dict,
                     'id_to_rel_uri_dict': publications_data.id_to_rel_uri_dict},
-                    args.load_data)
+                    args.load_dataset)
         logger.debug("...done.")
 
     else:
@@ -252,7 +252,7 @@ def model_trainer(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # load previous state from file load_model_state if required
-    if args.load_model_state is not None and args.load_data is not None and args.rdf_graph_path is None:
+    if args.load_model_state is not None and args.load_dataset is not None and args.rdf_graph_path is None:
         model_state = torch.load(args.load_model_state) # load state of previously trained model
         model.load_state_dict(model_state['model_state_dict'], strict=False)
         optimizer.load_state_dict(model_state['optimizer_state_dict'])
@@ -419,10 +419,10 @@ def link_evaluator(args):
     triples of type (paper, subject, topic).
     '''
     # load dataset used by model_trainer ad previous step
-    if args.load_data and not args.rdf_graph_path:
-        # load data structures from file args.load_data
+    if args.load_dataset and not args.rdf_graph_path:
+        # load data structures from file args.load_dataset
         logger.debug("Loading data structures...")
-        publications_data = torch.load(args.load_data)
+        publications_data = torch.load(args.load_dataset)
         num_nodes = publications_data['num_nodes']
         train_data = publications_data['train_data']
         valid_data = publications_data['valid_data']
@@ -493,7 +493,7 @@ def link_evaluator(args):
     if use_cuda:
         model.cuda()
     # load previous state from file load_model_state if required
-    if args.load_model_state is not None and args.load_data is not None and args.rdf_graph_path is None:
+    if args.load_model_state is not None and args.load_dataset is not None and args.rdf_graph_path is None:
         if use_cuda:
             model_state = torch.load(args.load_model_state) # load state of previously trained model
         else:
