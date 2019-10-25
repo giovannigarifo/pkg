@@ -140,10 +140,10 @@ class LinkPredict(nn.Module):
 #----------#
 # - Main - #
 #----------#
-def linkpredict(args):
+def model_trainer(args):
 
-    # load data required for the prediction task
-    if args.load_data and not args.rdf_dataset_path:
+    # load dataset
+    if args.load_data and not args.rdf_graph_path:
         # load data structures from file args.load_data
         logger.debug("Loading data structures...")
         publications_data = torch.load(args.load_data)
@@ -156,9 +156,9 @@ def linkpredict(args):
         id_to_rel_uri_dict = publications_data['id_to_rel_uri_dict']
         logger.debug("...done.")
 
-    elif args.rdf_dataset_path and args.load_data:
+    elif args.rdf_graph_path and args.load_data:
         # load from RDF graph using rdflib and save on args.load_data
-        publications_data = rdftodata.rdfToData(args.rdf_dataset_path, args.graph_perc, "link-prediction",
+        publications_data = rdftodata.rdfToData(args.rdf_graph_path, args.graph_perc, "link-prediction",
                             args.train_perc,
                             args.valid_perc,
                             args.test_perc)
@@ -252,7 +252,7 @@ def linkpredict(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # load previous state from file load_model_state if required
-    if args.load_model_state is not None and args.load_data is not None and args.rdf_dataset_path is None:
+    if args.load_model_state is not None and args.load_data is not None and args.rdf_graph_path is None:
         model_state = torch.load(args.load_model_state) # load state of previously trained model
         model.load_state_dict(model_state['model_state_dict'], strict=False)
         optimizer.load_state_dict(model_state['optimizer_state_dict'])
@@ -322,7 +322,7 @@ def linkpredict(args):
 
         print("/#/ Perform backpropagation...")
         loss.backward() # calc the gradients
-        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm) # clip gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm) # clip gradients (avoid gradient explosion)
         optimizer.step() # update weights
         t2 = time.time()
         print("...done\n")
@@ -410,7 +410,7 @@ def linkpredict(args):
     utils.plot_rank_statistics_from_json()
 
 
-def linkeval(args):
+def link_evaluator(args):
     '''
     Use this function to use an already trained model to obtain the nodes and relation embedding
     useful to evaluate new facts inside the knowledge base.
@@ -418,8 +418,8 @@ def linkeval(args):
     DistMult can then be used to obtain the score of associated to new facts, such as new
     triples of type (paper, subject, topic).
     '''
-    # load data required
-    if args.load_data and not args.rdf_dataset_path:
+    # load dataset used by model_trainer ad previous step
+    if args.load_data and not args.rdf_graph_path:
         # load data structures from file args.load_data
         logger.debug("Loading data structures...")
         publications_data = torch.load(args.load_data)
@@ -493,7 +493,7 @@ def linkeval(args):
     if use_cuda:
         model.cuda()
     # load previous state from file load_model_state if required
-    if args.load_model_state is not None and args.load_data is not None and args.rdf_dataset_path is None:
+    if args.load_model_state is not None and args.load_data is not None and args.rdf_graph_path is None:
         if use_cuda:
             model_state = torch.load(args.load_model_state) # load state of previously trained model
         else:
@@ -544,39 +544,65 @@ if __name__ == '__main__':
     # parse arguments
     parser = argparse.ArgumentParser(description='RGCN')
 
-    # linkeval or linkpredict
-    parser.add_argument("--job", type=str, default=None, help="Train new model or use existing one to evaluate triples")
-    parser.add_argument("--triples-path", type=str, default=None, help="Triple to evaluate if job is linkeval")
+    parser.add_argument("--job", type=str, default=None, \
+        help="use \"train\" to train a model or \"eval\" to get predictions")
 
-    parser.add_argument("--rdf-dataset-path", type=str, default=None, help="path to RDF dataset to use")
-    parser.add_argument("--load-data", type=str, default=None, help="path to the torch dict serialized with all publications data")
-    parser.add_argument("--load-model-state", type=str, default=None, help="path to the pytorch model to load")
+    parser.add_argument("--rdf-graph-path", type=str, default=None, \
+        help="path to RDF graph to use")
+    parser.add_argument("--load-dataset", type=str, default=None, \
+        help="path to the torch dict serialized with all publications")
+    parser.add_argument("--load-model-state", type=str, default=None, \
+        help="path to the pytorch model to load")
 
-    parser.add_argument("--gpu", type=int, default=-1, help="gpu")
-    parser.add_argument("--num-threads", type=int, default=4, help="number of threads to be used for CPU computation")
+    parser.add_argument("--gpu", type=int, default=-1, \
+        help="The GPU that CUDA should use, -1 for no GPU.")
+    parser.add_argument("--num-threads", type=int, default=7, \
+        help="number of threads to be used by CPU")
 
     # graph and triples splits
-    parser.add_argument("--graph-perc", type=float, default=1.0, help="percentage of the nodes to be sampled. 0.5 means get 50 percent of the nodes.")
-    parser.add_argument("--train-perc", type=float, default=0.9, help="Train split percentage for the triplets")
-    parser.add_argument("--valid-perc", type=float, default=0.05, help="Validation split percentage for the triplets")
-    parser.add_argument("--test-perc", type=float, default=0.05, help="Test split percentage for the triplets")
+    parser.add_argument("--graph-perc", type=float, default=1.0, \
+        help="get only a certain percentage of nodes from the RDF graph.")
+    parser.add_argument("--train-perc", type=float, default=0.9, \
+        help="Train split percentage for the triplets")
+    parser.add_argument("--valid-perc", type=float, default=0.05, \
+        help="Validation split percentage for the triplets")
+    parser.add_argument("--test-perc", type=float, default=0.05, \
+        help="Test split percentage for the triplets")
 
     # hyperparameters
-    parser.add_argument("--dropout", type=float, default=0.2, help="dropout probability")
-    parser.add_argument("--n-hidden", type=int, default=500, help="number of hidden units")
-    parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
-    parser.add_argument("--n-bases", type=int, default=100, help="number of weight blocks for each relation")
-    parser.add_argument("--n-layers", type=int, default=2, help="number of propagation rounds")
-    parser.add_argument("--n-epochs", type=int, default=6000, help="number of minimum training epochs")
-    parser.add_argument("--eval-batch-size", type=int, default=500, help="batch size when evaluating")
-    parser.add_argument("--regularization", type=float, default=0.01, help="regularization weight")
-    parser.add_argument("--grad-norm", type=float, default=1.0, help="norm to clip gradient to")
-    parser.add_argument("--graph-batch-size", type=int, default=30000, help="number of edges to sample in each training epoch")
-    parser.add_argument("--graph-split-size", type=float, default=0.5, help="portion of sampled edges (see graph-batch-size) used as positive sample")
-    parser.add_argument("--negative-sample", type=int, default=10, help="number of negative samples per positive sample")
-    parser.add_argument("--evaluate-every", type=int, default=500, help="perform evaluation every n epochs")
+    parser.add_argument("--n-epochs", type=int, default=6000, \
+        help="number of minimum training epochs")
+    parser.add_argument("--lr", type=float, default=1e-2, \
+        help="learning rate")
+    parser.add_argument("--regularization", type=float, default=0.01, \
+        help="regularization weight")
+    parser.add_argument("--grad-norm", type=float, default=1.0, \
+        help="norm to clip gradient to, avoiding gradient explosion")
+    parser.add_argument("--dropout", type=float, default=0.2, \
+        help="dropout probability")
 
-    parser.add_argument("--num-scored-triples", type=int, default=30, help="number of scored triples to save in linkeval")
+    parser.add_argument("--n-layers", type=int, default=2, \
+        help="number of propagation rounds")
+    parser.add_argument("--n-hidden", type=int, default=500, \
+        help="number of hidden units")
+    parser.add_argument("--n-bases", type=int, default=100, \
+        help="number of weight blocks for each relation")
+
+    parser.add_argument("--graph-batch-size", type=int, default=30000, \
+        help="number of sampled edges in each training epoch")
+    parser.add_argument("--graph-split-size", type=float, default=0.5, \
+        help="portion of sampled edges used as positive sample")
+    parser.add_argument("--negative-sample", type=int, default=10, \
+        help="number of negative samples per positive sample")
+
+    parser.add_argument("--eval-batch-size", type=int, default=500, \
+        help="batch size when evaluating a trained model in model_trainer")
+    parser.add_argument("--evaluate-every", type=int, default=500, \
+        help="perform evaluation every n epochs in model_trainer")
+
+    # link_evaluator specific parameters
+    parser.add_argument("--num-scored-triples", type=int, default=30, \
+        help="number of scored triples that link_evaluator should save.")
 
     args = parser.parse_args()
 
@@ -585,8 +611,8 @@ if __name__ == '__main__':
         logger.debug("\t{arg}: {attr}".format(arg=arg, attr=getattr(args, arg)))
 
     if args.job == None:
-        logger.debug("Wrong job parameter, use \"linkpredict\" or \"linkeval\"")
-    elif args.job == "linkpredict":
-        linkpredict(args)
-    elif args.job == "linkeval":
-        linkeval(args)
+        logger.debug("Wrong job parameter, use \"train\" or \"eval\"")
+    elif args.job == "train":
+        model_trainer(args)
+    elif args.job == "eval":
+        link_evaluator(args)
