@@ -369,7 +369,6 @@ def model_trainer(args):
                             'loss': loss
                             },
                            model_state_file)
-
             if use_cuda:
                 model.cuda() # activate again GPU
 
@@ -398,10 +397,6 @@ def model_trainer(args):
     utils.check_accuracy(mrr_test, test_data, rank_list,
         id_to_node_uri_dict=id_to_node_uri_dict,
         id_to_rel_uri_dict=id_to_rel_uri_dict)
-
-    # enable error logging level (avoid matplotlib debug logging to stdout)
-    logging.basicConfig(stream=sys.stdout, level=logging.ERROR, \
-                        format='[%(name)s - %(levelname)s] %(message)s')
 
     # plot loss behavior to file
     utils.plot_loss_to_file(loss_over_epochs)
@@ -540,6 +535,9 @@ if __name__ == '__main__':
     # setup logging
     logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(name)s - %(levelname)s] %(message)s')
     logger = logging.getLogger('rgcn_logger')
+    # disable matplotlib logging
+    logging.getLogger('matplotlib.font_manager').disabled = True
+    logging.getLogger('matplotlib.ticker').disabled = True
 
     # parse arguments
     parser = argparse.ArgumentParser(description='RGCN')
