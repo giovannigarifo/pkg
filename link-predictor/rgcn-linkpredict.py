@@ -137,10 +137,10 @@ class LinkPredict(nn.Module):
         return predict_loss + self.reg_param * reg_loss # regularization to avoid overfitting
 
 
-#----------#
-# - Main - #
-#----------#
 def model_trainer(args):
+    '''
+    Trains a model and saves it.
+    '''
 
     # load dataset
     if args.load_dataset and not args.rdf_graph_path:

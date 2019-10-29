@@ -432,13 +432,14 @@ def evaluate(epoch,
 ######################################################
 
 def save_list_as_json(list_to_print, file_name, epoch):
-
-    # build path
+    '''
+    Serialize and save as JSON a Python list passed as argument.
+    '''
     dir_path = ""
-    if epoch is str:
+    if type(epoch) is str:
         if epoch == "best_on_test_data":
             dir_path = "./output/epoch_best_on_test_data/"
-    if epoch is int:
+    if type(epoch) is int:
         if epoch >= 0:
             dir_path = "./output/epoch_" + str(epoch) + "/"
     if dir_path == "":
