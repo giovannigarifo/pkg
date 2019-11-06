@@ -347,6 +347,53 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
         edges_sources, edges_destinations, edges_relations, edges_norms, \
         id_to_node_uri_dict, id_to_rel_uri_dict)
 
+def printRDFGraphStatistics(g: Graph):
+
+    # Entities statistics
+    # key = class, value = number of instances for such clas
+    num_entities_dict = {key.value: 0 for key in GeraniumOntology}
+
+    # Edges statistics
+    # key = relation, value = number of edges for such relation
+    num_edges_dict = {key.value: 0 for key in PURLTerms if key != PURLTerms.PURL_TERM_SUBJECT}
+
+    keyword_rel = str(PURL.subject + "_keyword") # special case for keyword subject
+    num_edges_dict[keyword_rel] = 0
+
+    tmf_rel = str(PURL.subject + "_tmf") # special case for TMF subject
+    num_edges_dict[tmf_rel] = 0
+
+    # entity statistics
+    nodes = set()
+    for (s, p, o) in g:
+        for geranium_ont_type in [t for t in GeraniumOntology]:
+            if (s, RDF.type, geranium_ont_type.value) in g:
+                nodes.add(s)
+            if (o, RDF.type, geranium_ont_type.value) in g:
+                nodes.add(o)
+
+    for entity in nodes:
+        for geranium_ont_type in [t for t in GeraniumOntology]:
+            if (entity, RDF.type, geranium_ont_type.value) in g:
+                num_entities_dict[geranium_ont_type.value] += 1
+
+    # edges statistics
+    for (s, p, o) in g:
+        # if it's a triple between nodes
+        if s in nodes and o in nodes:
+            # first test if relation is special case (subject can be keyword or tmf)
+            if p == PURLTerms.PURL_TERM_SUBJECT.value:
+                if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_TMF.value) in g:
+                    num_edges_dict[tmf_rel] += 1
+                if (o, RDF.type, GeraniumOntology.GERANIUM_ONTOLOGY_KEY.value) in g:
+                    num_edges_dict[keyword_rel] += 1
+            else: num_edges_dict[p] += 1 # some other relation, add it
+
+    print("---> Entities statistics:\n")
+    print(num_entities_dict)
+    print("\n\n---> Edges statistics:\n")
+    print(num_edges_dict)
+
 
 def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: str = "classification",
                 train_perc: float = 0.9, valid_perc: float = 0.9, test_perc: float = 0.9) -> PublicationsDataset:
