@@ -204,7 +204,8 @@ def readFileInGraph(filepath: str = "../../data/serialized.xml"):
     g = Graph()
     g.parse(filepath, util.guess_format(filepath))
 
-    logger.debug("Input file has been read in rdflib Graph object")
+    logger.debug("Input file has been read in rdflib Graph object.")
+    printRDFGraphStatistics(g)
     return g
 
 
@@ -349,6 +350,10 @@ def buildDataFromGraph(g: Graph, graphperc: float = 1.0) -> PublicationsDataset:
 
 def printRDFGraphStatistics(g: Graph):
 
+    # setup logging
+    logger = logging.getLogger('rdftodata_logger')
+    logger.debug("Analyzing RDF graph statistics...")
+
     # Entities statistics
     # key = class, value = number of instances for such clas
     num_entities_dict = {key.value: 0 for key in GeraniumOntology}
@@ -389,10 +394,11 @@ def printRDFGraphStatistics(g: Graph):
                     num_edges_dict[keyword_rel] += 1
             else: num_edges_dict[p] += 1 # some other relation, add it
 
-    print("---> Entities statistics:\n")
-    print(num_entities_dict)
-    print("\n\n---> Edges statistics:\n")
-    print(num_edges_dict)
+    logger.debug("---> Entities statistics:")
+    logger.debug(num_entities_dict)
+    logger.debug("---> Edges statistics:")
+    logger.debug(num_edges_dict)
+    logger.debug("\n")
 
 
 def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: str = "classification",
@@ -413,7 +419,6 @@ def rdfToData(filepath: str = "serialized.xml", graph_perc: float = 1.0, job: st
 
     elif job == "link-prediction":
 
-        #topicSampling(g, 2) # remove validation topics from rdflib graph
         data = buildDataFromGraph(g, graph_perc)
         data.initTrainValidTestTriples(train_perc, valid_perc, test_perc)
         #data.checkCorrectness(g)
