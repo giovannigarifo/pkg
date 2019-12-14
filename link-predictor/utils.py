@@ -439,6 +439,8 @@ def save_list_as_json(list_to_print, file_name, epoch):
     if type(epoch) is str:
         if epoch == "best_on_test_data":
             dir_path = "./output/epoch_best_on_test_data/"
+        if epoch == "link_evaluation":
+            dir_path = "./output/evaluation/"
     if type(epoch) is int:
         if epoch >= 0:
             dir_path = "./output/epoch_" + str(epoch) + "/"
@@ -739,7 +741,7 @@ def calc_score(
         print("...scores calculated for batch {} / {} in {}s".format(idx, n_batch, t2-t1))
 
     # save scores info to json
-    save_list_as_json(score_dict, "evaluated_scores")
+    save_list_as_json(score_dict, "predictions", "link_evaluation")
 
 
 def check_domain_correctness(sub: str, rel: str, obj: str) -> bool:
