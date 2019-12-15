@@ -1,2 +1,5 @@
 __pycache__
-out
+*.log
+output
+*.pth
+data/anni2009-2019_no_img.xml

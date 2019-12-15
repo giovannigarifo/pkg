@@ -13,16 +13,19 @@ R-GCN is a kind of GraphConvNet that operates on [knowledge graphs](https://en.w
 
 The main difference with respect to classical GCNs that operates on graphs is that R-GCN operates on multigraphs with labeled edges.
 
-## Link prediction
 
-To run `link-predict.py` on 16GB of system memory with training and evaluation done on CPU with 8 threads available:
+# How to run
 
-```
-python3 -u rgcn-linkpredict.py --num-threads=7 --eval-batch-size="40" --rdf-dataset-path="../data/anni2013-2017_with_img.xml" 2>&1 | tee out.log
-```
+## Link predictor training
 
-on 32GB of system memory and GPU with 8GB of video memory, with training on GPU and evaluation on CPU with 8 threads available:
+On 32GB of system memory and GPU with 8GB of video memory, with training on GPU and evaluation on CPU with 8 threads available:
 
 ```
-python3 -u rgcn-linkpredict.py --gpu=0 --num-threads=8 --eval-batch-size="80" --graph-batch-size=20000 --rdf-dataset-path="../data/anni2013-2017_with_img.xml" 2>&1 | tee out.log
+python3 -u rgcn-linkpredict.py --job="train" --gpu=0 --num-threads=8 --graph-perc=1.0 --train-perc=0.9 --valid-perc=0.05 --test-perc=0.05 --eval-batch-size=80 --graph-batch-size=20000 --n-epochs=6000 --lr=0.001 --regularization=0.5 --evaluate-every=100 --rdf-graph-path="../data/anni2013-2017_no_img_7topics.xml" --load-dataset="input/pkg_dataset.pth" 2>&1 | tee output/output.log
+```
+
+## New links evaluation
+
+```
+python3 -u rgcn-linkpredict.py --job="eval" --num-threads=8 --graph-perc="1.0" --eval-batch-size="30" --graph-batch-size="10000" --load-model-state="model_state.pth" --load-data="input/pkg_dataset.pth" --num-scored-triples="30" 2>&1 | tee output/output.log
 ```
