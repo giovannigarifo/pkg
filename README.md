@@ -16,16 +16,27 @@ The main difference with respect to classical GCNs that operates on graphs is th
 
 # How to run
 
-## Link predictor training
+On a Workstation with:
 
-On 32GB of system memory and GPU with 8GB of video memory, with training on GPU and evaluation on CPU with 8 threads available:
+* 32GB of system memory
+* 8GB of video memory
+
+### Link predictor training
+
+First train the link predictor.
+
+* Training on GPU and evaluation on CPU:
 
 ```
 python3 -u rgcn-linkpredict.py --job="train" --gpu=0 --num-threads=8 --graph-perc=1.0 --train-perc=0.9 --valid-perc=0.05 --test-perc=0.05 --eval-batch-size=80 --graph-batch-size=20000 --n-epochs=6000 --lr=0.001 --regularization=0.5 --evaluate-every=100 --rdf-graph-path="../data/anni2013-2017_no_img_7topics.xml" --load-dataset="input/pkg_dataset.pth" 2>&1 | tee output/output.log
 ```
 
-## New links evaluation
+### New links evaluation
+
+Use the trained predictor to export candidate links to be added to the graph.
+
+* Evaluation of candidate links to be used for the recommendation system:
 
 ```
-python3 -u rgcn-linkpredict.py --job="eval" --num-threads=8 --graph-perc="1.0" --eval-batch-size="30" --graph-batch-size="10000" --load-model-state="model_state.pth" --load-data="input/pkg_dataset.pth" --num-scored-triples="30" 2>&1 | tee output/output.log
+python3 -u rgcn-linkpredict.py --job="eval" --gpu=-1 --num-threads=8 --graph-perc="1.0" --eval-batch-size="30" --graph-batch-size="10000" --load-model-state="model_state.pth" --load-data="input/pkg_dataset.pth" --num-scored-triples="30" 2>&1 | tee output/output.log
 ```
